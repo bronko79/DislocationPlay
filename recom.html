@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+	<meta charset="UTF-8">
+	<title>Tastyworks Login</title>
+	<link rel="stylesheet" href="style.css?7">
+	<script src="script.js?0" type="text/javascript"></script>
+</head>
+<body>
+	<div id="welcomeMessage" style="display: none;"></div>
+
+	<!-- Login-Bereich -->
+	<div id="loginContainer">
+		<h2>Tastyworks Login</h2>
+		<label for="username">Benutzername:</label>
+		<input type="text" id="username" placeholder="z. B. john.doe@example.com" />
+		<label for="password">Passwort:</label>
+		<input type="password" id="password" placeholder="•••••••••••" />
+		<button id="loginButton">Login</button>
+	</div>
+
+	<!-- Wrapper: Optionseingabe + Positionstabelle nebeneinander -->
+	<div id="inputAndPositionWrapper" style="display: none; gap: 2rem; align-items: flex-start;">
+
+		<!-- Optionseingabe (linke Spalte) -->
+		<div style="flex: 1;">
+			<div id="optionInputFields">
+				<h3>Optionen eingeben:</h3>
+
+				<label>Account auswählen:</label>
+				<select id="accountSelect" style="padding: 9px; width: 300px; margin-bottom: 20px;"></select>
+
+				<div>
+					<label>Symbol 1:</label>
+					<input type="text" id="symbol1" placeholder="z.B. VIX" style="width: 100px;" value="" />
+					<div id="suggestions1" class="suggestions-box" style="display: none; position: absolute; background: white; border: 1px solid #ccc; z-index: 10;"></div>
+					<select id="expiration1" style="padding: 8px; min-width: 150px;">
+						<option value="">Bitte Symbol wählen</option>
+					</select>
+					<select id="type1" style="padding: 9px;">
+						<option value="C" selected>Call</option>
+						<option value="P">Put</option>
+					</select>
+				</div>
+
+				<div style="margin-top: 1rem;">
+					<label>Symbol 2:</label>
+					<input type="text" id="symbol2" placeholder="z.B. VXX" style="width: 100px;" value="" />
+					<div id="suggestions2" class="suggestions-box" style="display: none; position: absolute; background: white; border: 1px solid #ccc; z-index: 10;"></div>
+					<select id="expiration2" style="padding: 8px; min-width: 150px;">
+						<option value="">Bitte Symbol wählen</option>
+					</select>
+					<select id="type2" style="padding: 9px;">
+						<option value="C">Call</option>
+						<option value="P" selected>Put</option>
+					</select>
+				</div>
+
+				<div style="margin-top: 1.5rem;">
+					<label for="maxDelta">Max. Net Delta Error:</label>
+					<input type="number" id="maxDelta" value="0.01" step="0.01" style="width: 100px;" />
+				</div>
+
+				<button id="loadButton" style="display: none; margin-top: 1rem;">Load Option Chains</button>
+				<button id="recommandationButton" style="display: none;">Recommandation</button>
+			</div>
+		</div>
+
+		<!-- Positionen (rechte Spalte) -->
+		<div id="positionsContainer" style="flex: 1;">
+			<h3>Offene Positionen</h3>
+			<table id="positionsTable" style="width: 100%; border-collapse: collapse; border: 1px solid #ccc;">
+				<thead>
+					<tr style="background-color: #f5f5f5;">
+						<th style="border: 1px solid #ccc; padding: 6px;">✓</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Symbol</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Bid</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Ask</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Spread</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Delta</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Vega</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Qty</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Entry</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">PnL</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">PnL%</th>
+					</tr>
+				</thead>
+				<tbody id="positionsTableBody">
+					<tr>
+						<td colspan="11" style="padding: 8px; text-align: center;">Noch keine Daten geladen.</td>
+					</tr>
+				</tbody>
+			</table>
+
+			<!-- Roter "Alle Schließen" Button -->
+			<div style="margin-top: 1rem; text-align: right;">
+				<button id="closeAllPositionsButton" style="
+					display: none;
+					background-color: #d32f2f;
+					color: white;
+					border: none;
+					padding: 10px 16px;
+					font-size: 1rem;
+					border-radius: 4px;
+					cursor: pointer;
+				">Selektierte Schließen</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Empfehlungen -->
+	<div id="recommendationContainer" style="margin-top: 2rem; display: none;">
+		<h3>Empfehlungen:</h3>
+		<div id="recommendationList"></div>
+	</div>
+
+
+  <script type="module">
+
+    var tta = new TastyTradeApi()
+    var optionChains = { };
+	var streamSymbolToSymbolMap = new Map();
+	var recommendationInitialLoaded = false
+
+    function onLoginSuccess(username){
+        tta.connectWebsocket()
+
+		document.getElementById("loginContainer").style.display = "none";
+		document.getElementById("inputAndPositionWrapper").style.display = "flex";
+		document.getElementById("loadButton").style.display = "inline-block";
+
+		// Recommendation-Button NICHT anzeigen hier!
+		document.getElementById("recommandationButton").style.display = "none";
+
+	  // Willkommensnachricht anzeigen
+	  const welcomeBox = document.getElementById("welcomeMessage");
+	  welcomeBox.innerText = `Willkommen, ${username}!`;
+	  welcomeBox.style.display = "block";
+
+	  tta.getAccounts().then(result => {
+		  const select = document.getElementById("accountSelect");
+		  select.innerHTML = "";
+		  result.items.forEach(item => {
+			const opt = document.createElement("option");
+			opt.value = item.account["account-number"];
+			opt.text = item.account.nickname + " (" + item.account["account-number"] + ")";
+			select.appendChild(opt);
+		  });
+		  //
+		});
+
+	    loadInputState();
+
+	}
+    function loadPositions() {
+      const accountId = document.getElementById("accountSelect").value;
+      if (!accountId) return;
+
+      const tableBody = document.getElementById("positionsTableBody");
+      tableBody.innerHTML = `<tr><td colspan="12" style="padding: 8px; text-align: center;">Lade Daten…</td></tr>`;
+
+      tta.getPositions(accountId).then(result => {
+        if (!result || result.length === 0) {
+          tableBody.innerHTML = `<tr><td colspan="12" style="padding: 8px; text-align: center;">Keine Positionen gefunden.</td></tr>`;
+          document.getElementById("closeAllPositionsButton").style.display = "none";
+          return;
+        }
+
+        document.getElementById("closeAllPositionsButton").style.display = "inline-block";
+        tableBody.innerHTML = "";
+
+        // Gruppieren nach Datum (YYYY-MM-DD)
+        const grouped = {};
+        result.forEach(pos => {
+          // new Date(pos["created-at"]).getTime()
+          const date = pos["created-at"].substring(0, 10);
+          if (!grouped[date]) grouped[date] = [];
+          grouped[date].push(pos);
+        });
+
+        // Für jede Gruppe: Überschrift, Zeilen, Zwischensumme
+        Object.entries(grouped).forEach(([date, positions]) => {
+          // Gruppen-Überschrift
+          const headerRow = document.createElement("tr");
+          headerRow.innerHTML = `
+            <td colspan="12" style="padding: 8px; font-weight: bold; background-color: #eee;">
+              ${date}
+            </td>`;
+          tableBody.appendChild(headerRow);
+
+          let groupDeltaSum = 0;
+          let groupCloseSum = 0;
+          let groupQuantitySum = 0;
+
+          positions.forEach(pos => {
+            const row = document.createElement("tr");
+            row.setAttribute("data-group", date);
+
+            row.innerHTML = `
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">
+                <input type="checkbox" class="position-checkbox" data-symbol="${pos.symbol}" />
+              </td>
+              <td style="border: 1px solid #ccc; padding: 6px;" id="${pos.symbol}_symbol">${pos.symbol}</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_bid">-</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_ask">-</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_spread">-</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_delta">-</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_vega">-</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_quantity">${pos.quantity}</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_entry">${parseFloat(pos["close-price"]).toFixed(2)}</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnl">-</td>
+              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnlPer">-</td>
+            `;
+
+            tableBody.appendChild(row);
+
+            const streamerSymbol = tta.fullSymbolToStreamerSymbol(pos.symbol);
+            streamSymbolToSymbolMap.set(streamerSymbol, pos.symbol);
+            subscribeOption(streamerSymbol);
+
+            groupCloseSum += parseFloat(pos["close-price"]);
+            groupQuantitySum += parseInt(pos.quantity);
+          });
+
+          // Zwischensumme-Zeile
+          const sumRow = document.createElement("tr");
+          sumRow.classList.add("group-summary");
+          sumRow.setAttribute("data-group", date);
+          sumRow.innerHTML = `
+            <td colspan="2" style="text-align: right; font-weight: bold; padding: 6px;">Zwischensumme:</td>
+            <td class="group-bid-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+            <td class="group-ask-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+            <td class="group-spread-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+
+
+            <td class="group-delta-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+            <td class="group-vega-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+            <!-- <td colspan="2"></td> -->
+
+            <td class="group-qty-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupQuantitySum}</td>
+            <td class="group-close-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupCloseSum.toFixed(2)}</td>
+            <td class="group-pnl-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+            <td class="group-pnlPer-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+          `;
+          tableBody.appendChild(sumRow);
+        });
+
+      }).catch(err => {
+        console.error("Fehler beim Laden der Positionen:", err);
+        tableBody.innerHTML = `<tr><td colspan="11" style="padding: 8px; text-align: center;">Fehler beim Laden.</td></tr>`;
+      });
+    }
+
+
+    function onWebsocketAuthorized(){
+        loadPositions();
+    }
+
+	function loadOptionChains() {
+        optionChains = { }
+        streamSymbolToSymbolMap = new Map();
+
+		const sym1 = document.getElementById("symbol1").value.trim().toUpperCase();
+		const exp1 = document.getElementById("expiration1").value;
+		const type1 = document.getElementById("type1").value;
+
+		const sym2 = document.getElementById("symbol2").value.trim().toUpperCase();
+		const exp2 = document.getElementById("expiration2").value;
+		const type2 = document.getElementById("type2").value;
+
+		// optionChains setzen
+		optionChains[sym1] = {
+		optionType: type1,
+		expirationDate: exp1,
+		atmOptionStrike: 0,
+		diffPrice: Infinity,
+		options: {},
+		expectedInitialMessages: 0
+		};
+
+		optionChains[sym2] = {
+		optionType: type2,
+		expirationDate: exp2,
+		atmOptionStrike: 0,
+		diffPrice: Infinity,
+		options: {},
+		expectedInitialMessages: 0
+		};
+
+		// Chains abrufen
+		//tta.getOptionChain(sym1);
+		//tta.getOptionChain(sym2);
+
+
+        Object.keys(optionChains).forEach(key => {
+			tta.getOptionChain(key).then(result => {
+				var optionChainsItems = result.items
+				var underlying = optionChainsItems[0]['underlying-symbol']
+
+				subscribeUnderlying(underlying)
+				for(var i=0; i< optionChainsItems.length; i++){
+					var optionChainItem = optionChainsItems[i]
+					if(optionChainItem['option-chain-type'] === "Standard"
+					   && optionChainItem['expiration-date'] === optionChains[underlying].expirationDate && optionChainItem['option-type'] === optionChains[underlying].optionType) {
+						var symbol = optionChainItem['streamer-symbol']
+						if(optionChains[ optionChainItem['underlying-symbol'] ] !== undefined) {
+							//tta.subscribeSymbol( [ {type: "Quote", symbol: symbol}, {type: "Greeks", symbol: symbol} ] )
+							subscribeOption(symbol)
+							optionChains[ optionChainItem['underlying-symbol'] ].expectedInitialMessages++;
+
+							streamSymbolToSymbolMap.set(optionChainItem['streamer-symbol'] , optionChainItem.symbol)
+						}
+					}
+				}
+			});
+        });
+
+        document.getElementById("loadButton").style.display = "none";
+		document.getElementById("recommandationButton").style.display = "inline-block";
+
+	}
+
+    function subscribeOption(streamerSymbol) {
+        tta.subscribeSymbol( [ {type: "Quote", symbol: streamerSymbol}, {type: "Greeks", symbol: streamerSymbol} ] )
+    }
+
+    function subscribeUnderlying(underlying) {
+        tta.subscribeSymbol( [ { "symbol": underlying + "{=1d}", "type": "Candle", "fromTime": new Date().getTime() - (86400000 * 3)} ] )
+    }
+
+    function updatePositionGreeks(item, fullSymbol) {
+        if (item.eventType !== 'Greeks' || !item.isOption) return;
+
+        var deltaCell = document.getElementById(fullSymbol + "_delta")
+        var vegaCell = document.getElementById(fullSymbol + "_vega")
+
+        if (deltaCell) deltaCell.innerText = item.delta.toFixed(2);
+        if (vegaCell) vegaCell.innerText = item.vega.toFixed(2);
+
+        const row = document.getElementById(`${fullSymbol}_symbol`)?.closest("tr");
+        if (row && row.dataset.group) {
+            const group = row.dataset.group;
+
+
+            const rows = document.querySelectorAll(`tr[data-group="${group}"]`);
+            let sumDelta = 0, sumVega = 0
+
+            rows.forEach(r => {
+              const sym = r.querySelector("[id$='_symbol']")?.id?.replace("_symbol", "");
+              if (!sym) return;
+              const d = parseFloat(document.getElementById(`${sym}_delta`)?.innerText);
+              const v = parseFloat(document.getElementById(`${sym}_vega`)?.innerText);
+
+              if (!isNaN(d)) sumDelta += d;
+              if (!isNaN(v)) sumVega += v;
+            });
+
+            const groupRow = document.querySelector(`.group-summary[data-group="${group}"]`);
+            if (groupRow) {
+                groupRow.querySelector(`.group-delta-${group}`).innerText = sumDelta.toFixed(2);
+                groupRow.querySelector(`.group-vega-${group}`).innerText = sumVega.toFixed(2);
+            }
+        }
+
+
+        /*
+        if(item.eventType === 'Greeks' && item.isOption == true) {
+    		var deltaCell = document.getElementById(fullSymbol + "_delta")
+    		if(deltaCell !== null) {
+                deltaCell.innerText = item.delta.toFixed(3);
+    		}
+
+    		var vegaCell = document.getElementById(fullSymbol + "_vega")
+    		if(vegaCell !== null) {
+                vegaCell.innerText = item.vega.toFixed(3);
+    		}
+        }
+        */
+    }
+
+function updatePositionPrices(item, fullSymbol) {
+  if (item.eventType !== 'Quote' || !item.isOption) return;
+
+  const bidCell = document.getElementById(`${fullSymbol}_bid`);
+  const askCell = document.getElementById(`${fullSymbol}_ask`);
+  const entryCell = document.getElementById(`${fullSymbol}_entry`);
+  const pnlCell = document.getElementById(`${fullSymbol}_pnl`);
+  const pnlPerCell = document.getElementById(`${fullSymbol}_pnlPer`);
+  const quantityCell = document.getElementById(`${fullSymbol}_quantity`);
+  const spreadCell = document.getElementById(`${fullSymbol}_spread`);
+
+  if (!entryCell || !quantityCell) return;
+
+  const entryPrice = parseFloat(entryCell.innerText);
+  const quantity = parseInt(quantityCell.innerText);
+
+  // Aktualisiere Bid/Ask
+  if (bidCell) bidCell.innerText = item.bidPrice.toFixed(2);
+  if (askCell) askCell.innerText = item.askPrice.toFixed(2);
+
+  // Spread aktualisieren
+  if (spreadCell && askCell && bidCell) {
+    const spreadAbs = item.askPrice - item.bidPrice;
+    const spreadRel = spreadAbs / item.askPrice;
+    spreadCell.innerText = `${spreadAbs.toFixed(2)} (${spreadRel.toFixed(2)})`;
+  }
+
+  // PnL & % aktualisieren
+  const pnl = (item.bidPrice - entryPrice) * quantity;
+  const pnlPer = (pnl / entryPrice) * 100;
+
+  pnlCell.innerText = pnl.toFixed(2);
+  pnlPerCell.innerText = pnlPer.toFixed(2) + "%";
+
+  // Farben setzen
+  if (pnl > 0) {
+    pnlCell.style.color = "green";
+    pnlPerCell.style.color = "green";
+  } else if (pnl < 0) {
+    pnlCell.style.color = "red";
+    pnlPerCell.style.color = "red";
+  } else {
+    pnlCell.style.color = "inherit";
+    pnlPerCell.style.color = "inherit";
+  }
+
+  // Update Gruppensummen, wenn vorhanden
+  const row = document.getElementById(`${fullSymbol}_symbol`)?.closest("tr");
+  if (row && row.dataset.group) {
+    const group = row.dataset.group;
+    // Summe über alle Zeilen in dieser Gruppe bilden
+    const rows = document.querySelectorAll(`tr[data-group="${group}"]`);
+    let sumBid = 0, sumAsk = 0, sumPnl = 0, sumQty = 0, sumEntry = 0, sumDelta = 0, sumVega = 0;
+
+    rows.forEach(r => {
+      const sym = r.querySelector("[id$='_symbol']")?.id?.replace("_symbol", "");
+      if (!sym) return;
+
+      const b = parseFloat(document.getElementById(`${sym}_bid`)?.innerText);
+      const a = parseFloat(document.getElementById(`${sym}_ask`)?.innerText);
+      const p = parseFloat(document.getElementById(`${sym}_pnl`)?.innerText);
+      const q = parseInt(document.getElementById(`${sym}_quantity`)?.innerText);
+      const e = parseFloat(document.getElementById(`${sym}_entry`)?.innerText);
+
+
+      if (!isNaN(b)) sumBid += b;
+      if (!isNaN(a)) sumAsk += a;
+      if (!isNaN(p)) sumPnl += p;
+      if (!isNaN(q)) sumQty += q;
+      if (!isNaN(e)) sumEntry += e;
+    });
+
+    const groupRow = document.querySelector(`.group-summary[data-group="${group}"]`);
+    if (groupRow) {
+      groupRow.querySelector(`.group-bid-${group}`).innerText = sumBid.toFixed(2);
+      groupRow.querySelector(`.group-ask-${group}`).innerText = sumAsk.toFixed(2);
+
+      const spread = sumAsk - sumBid;
+      const spreadRel = sumAsk > 0 ? (spread / sumAsk).toFixed(2) : "0.00";
+      groupRow.querySelector(`.group-spread-${group}`).innerText = `${spread.toFixed(2)} (${spreadRel})`;
+
+      groupRow.querySelector(`.group-pnl-${group}`).innerText = sumPnl.toFixed(2);
+      groupRow.querySelector(`.group-qty-${group}`).innerText = sumQty.toFixed(0);
+      groupRow.querySelector(`.group-close-${group}`).innerText = sumEntry.toFixed(2);
+
+      const pnlPerGroup = sumEntry > 0 ? ((sumPnl / sumEntry) * 100).toFixed(2) : "0.00";
+      const pnlPerCell = groupRow.querySelector(`.group-pnlPer-${group}`);
+      pnlPerCell.innerText = pnlPerGroup + "%";
+
+      // Farbe
+      if (sumPnl > 0) {
+        groupRow.querySelector(`.group-pnl-${group}`).style.color = "green";
+        pnlPerCell.style.color = "green";
+      } else if (sumPnl < 0) {
+        groupRow.querySelector(`.group-pnl-${group}`).style.color = "red";
+        pnlPerCell.style.color = "red";
+      } else {
+        groupRow.querySelector(`.group-pnl-${group}`).style.color = "inherit";
+        pnlPerCell.style.color = "inherit";
+      }
+    }
+  }
+
+}
+
+
+    function onFeedMessage(item){
+        if(optionChains[item.underlying] !== undefined) {
+            if(item.isOption == true) {
+
+    			//console.log(item)
+                if(optionChains[item.underlying].options[item.strike] === undefined) {
+                    optionChains[item.underlying].options[item.strike] = {}
+                }
+
+                if(item.eventType === 'Greeks') {
+                    optionChains[item.underlying].options[item.strike].delta = item.delta
+                    optionChains[item.underlying].options[item.strike].vega = item.vega
+                    optionChains[item.underlying].options[item.strike].volatility = item.volatility
+                    optionChains[item.underlying].options[item.strike].strike = item.strike
+    				optionChains[item.underlying].options[item.strike].eventSymbol = item.eventSymbol
+                }
+
+                if(item.eventType === 'Quote') {
+
+                    optionChains[item.underlying].options[item.strike].strike = item.strike
+                    optionChains[item.underlying].options[item.strike].eventSymbol = item.eventSymbol
+    				if(isNaN(item.bidPrice) == false && item.bidPrice !== undefined) {
+    					optionChains[item.underlying].options[item.strike].bid = item.bidPrice
+    				}
+
+                    if(isNaN(item.askPrice) == false && item.askPrice !== undefined) {
+    					optionChains[item.underlying].options[item.strike].ask = item.askPrice
+    				}
+                }
+
+    			optionChains[item.underlying].expectedInitialMessages--
+            } else {
+                if(item.eventType === 'Candle') {
+
+    				if(isNaN(item.close) == false && item.close !== undefined) {
+    					optionChains[item.underlying].price = item.close
+    				}
+
+                }
+            }
+
+            var currentDiff = Math.abs(optionChains[item.underlying].price - item.strike)
+            if (currentDiff < optionChains[item.underlying].diffPrice) {
+                optionChains[item.underlying].diffPrice = currentDiff
+                optionChains[item.underlying].atmOptionStrike = item.strike
+            }
+
+            var symbols = [...Object.keys(optionChains)]
+            if( recommendationInitialLoaded == false && optionChains[symbols[0]].expectedInitialMessages <= 0 && optionChains[symbols[1]].expectedInitialMessages <= 0) {
+                loadRecommendations()
+                recommendationInitialLoaded = true
+            }
+        }
+
+        var fullSymbol = streamSymbolToSymbolMap.get(item.eventSymbol)
+        updatePositionPrices(item, fullSymbol)
+        updatePositionGreeks(item, fullSymbol)
+	}
+
+    function getRecommendations(maxNetDeltaError, minQuantity = 1, maxQuantity = 2) {
+		var symbols = [...Object.keys(optionChains)]
+        var recommendations = []
+        var tmpStrikeCombis = new Set()
+        if( optionChains[symbols[0]].expectedInitialMessages <= 0 && optionChains[symbols[1]].expectedInitialMessages <= 0) {
+			var recommandation = undefined
+			var strikeArrayA = [...Object.keys(optionChains[symbols[0]].options)]
+			var strikeArrayB = [...Object.keys(optionChains[symbols[1]].options)]
+			strikeArrayB.reverse()
+			var startIndexA = strikeArrayA.indexOf(optionChains[symbols[0]].atmOptionStrike.toString())
+			var startIndexB = strikeArrayB.indexOf(optionChains[symbols[1]].atmOptionStrike.toString())
+			var iterations = 6
+			for(var i = startIndexA; i < startIndexA + iterations; i++) {
+				for(var j = startIndexB; j < startIndexB + iterations; j++) {
+					var optionItemA = optionChains[symbols[0]].options[parseInt(strikeArrayA[i])]
+					var optionItemB = optionChains[symbols[1]].options[parseInt(strikeArrayB[j])]
+					if (optionItemA !== undefined && optionItemB !== undefined) {
+						for(var qa = minQuantity; qa <= maxQuantity; qa++) {
+							for(var qb = minQuantity; qb <= maxQuantity; qb++) {
+								var netDelta = (optionItemA.delta * qa) + (optionItemB.delta * qb)
+
+								if(Math.abs(netDelta) <= maxNetDeltaError) {
+								    var strikeCombiKey = optionItemA.strike + "#" + optionItemB.strike
+								    if(!tmpStrikeCombis.has(strikeCombiKey)) {
+    									var askA = optionChains[symbols[0]].options[optionItemA.strike].ask
+    									var askB = optionChains[symbols[1]].options[optionItemB.strike].ask
+
+    									var bidA = optionChains[symbols[0]].options[optionItemA.strike].bid
+    									var bidB = optionChains[symbols[1]].options[optionItemB.strike].bid
+
+                                        var volatilityA = (optionChains[symbols[0]].options[optionItemA.strike].volatility * 100).toFixed(2) + "%"
+    									var volatilityB = (optionChains[symbols[1]].options[optionItemB.strike].volatility * 100).toFixed(2) + "%"
+
+    									var atmA = optionChains[symbols[0]].atmOptionStrike
+    									var atmB = optionChains[symbols[1]].atmOptionStrike
+
+    									var expirationDateA = optionChains[symbols[0]].expirationDate
+    									var expirationDateB = optionChains[symbols[1]].expirationDate
+
+    									var symbolA = streamSymbolToSymbolMap.get(optionChains[symbols[0]].options[optionItemA.strike].eventSymbol)
+    									var symbolB = streamSymbolToSymbolMap.get(optionChains[symbols[1]].options[optionItemB.strike].eventSymbol)
+
+    									var recommendation = {
+    										netDelta: netDelta,
+    										totalBuyPrice: (askA * qa) + (askB * qb),
+    										totalSellPrice: (bidA * qa) + (bidB * qb),
+    										trade1: {underlying: symbols[0], quantity: qa, optionType: optionChains[symbols[0]].optionType, strike: optionItemA.strike, bid: bidA, ask: askA, atm: atmA, expirationDate: expirationDateA, symbol: symbolA, volatility: volatilityA  },
+    										trade2: {underlying: symbols[1], quantity: qb, optionType: optionChains[symbols[1]].optionType, strike: optionItemB.strike, bid: bidB, ask: askB, atm: atmB, expirationDate: expirationDateB, symbol: symbolB, volatility: volatilityB }
+    									}
+    									recommendations.push(recommendation)
+    									tmpStrikeCombis.add(strikeCombiKey)
+								    }
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+        recommendations = recommendations.sort(function (a, b) {
+            return a.totalBuyPrice - b.totalBuyPrice;
+        });
+
+		return recommendations
+    }
+
+	function sendOrder(accountId, orderPayload) {
+	  console.log(orderPayload);
+	  tta.sendOrder(accountId, orderPayload).then(result => {
+	  	console.log(result)
+	  	loadPositions();
+	  });
+
+	}
+
+
+
+	function dryRun(recommendation, button) {
+		const accountId = document.getElementById("accountSelect").value;
+
+
+        const card = button.closest(".recommendation-card");
+        const quantityInput = card.querySelector(".quantityFactorInput");
+        const quantityFactor = parseInt(quantityInput.value || "1");
+        var quantity1 = recommendation.trade1.quantity * quantityFactor
+        var quantity2 = recommendation.trade2.quantity * quantityFactor
+
+		var payload1 = {
+		  "order-type": "Limit",
+		  "time-in-force": "Day",
+		  "price": (recommendation.trade1.ask).toString(),
+		  "price-effect": "Debit",
+		  "legs": [
+			{
+			  "instrument-type": "Equity Option",
+			  "symbol": recommendation.trade1.symbol,
+			  "quantity": quantity1.toString(),
+			  "action": "Buy to Open"
+			}
+		  ]
+		}
+
+		var payload2 = {
+		  "order-type": "Limit",
+		  "time-in-force": "Day",
+		  "price": (recommendation.trade2.ask).toString(),
+		  "price-effect": "Debit",
+		  "legs": [
+			{
+			  "instrument-type": "Equity Option",
+			  "symbol": recommendation.trade2.symbol,
+			  "quantity": quantity2.toString(),
+			  "action": "Buy to Open"
+			}
+		  ]
+		}
+
+	  tta.sendDryRun(accountId, payload1).then(result1 => {
+		tta.sendDryRun(accountId, payload2).then(result2 => {
+			  var sumImpact = parseFloat(result1['buying-power-effect'].impact) + parseFloat(result2['buying-power-effect'].impact)
+			  const card = button.closest(".recommendation-card");
+			  const output = card.querySelector("[data-dryrun]");
+                const result = `
+                  <div style="display: flex; flex-direction: column; gap: 1rem; width: 100%;">
+
+                    <div style="font-size: 1rem; font-weight: bold;">Dry Run Ergebnis</div>
+
+                    <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc;">
+                      <thead>
+                        <tr style="background-color: #f0f8ff;">
+                          <th colspan="2" style="text-align: left; padding: 8px; font-weight: bold;">Trades</th>
+                        </tr>
+                        <tr style="background-color: #f5f5f5;">
+                          <th style="border: 1px solid #ccc; padding: 8px;">Symbol</th>
+                          <th style="border: 1px solid #ccc; padding: 8px;">Impact</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style="border: 1px solid #ccc; padding: 8px;">${quantity1}x ${recommendation.trade1.underlying} ${recommendation.trade1.optionType}</td>
+                          <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${result1['buying-power-effect'].impact} USD</td>
+                        </tr>
+                        <tr>
+                          <td style="border: 1px solid #ccc; padding: 8px;">${quantity2}x ${recommendation.trade2.underlying} ${recommendation.trade2.optionType}</td>
+                          <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${result2['buying-power-effect'].impact} USD</td>
+                        </tr>
+
+                      </tbody>
+                    </table>
+
+                    <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc;">
+                      <thead>
+                        <tr style="background-color: #f5f5f5;">
+                          <th colspan="2" style="text-align: left; padding: 8px; font-weight: bold;">Gesamt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style="border: 1px solid #ccc; padding: 8px;">Total Impact</td>
+                          <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${sumImpact.toFixed(2)} USD</td>
+                        </tr>
+                        <tr>
+                          <td colspan="2" style="border: 1px solid #ccc; padding: 8px; text-align: center;">
+                            <button class="executeButton" style="margin-top: 0.5rem; padding: 6px 12px;">Alle Ausführen</button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                  </div>
+                `;
+
+			  output.innerHTML = result;
+			  const executeButton = output.querySelector(".executeButton");
+			  executeButton.addEventListener("click", () => {sendOrder(accountId, payload1); sendOrder(accountId, payload2) } );
+		});
+	  });
+	}
+
+    function loadRecommendations() {
+      const maxNetDeltaError = parseFloat(document.getElementById("maxDelta").value);
+      const recommendations = getRecommendations(maxNetDeltaError);
+      const container = document.getElementById("recommendationContainer");
+      const list = document.getElementById("recommendationList");
+      list.innerHTML = "";
+      container.style.display = "block";
+
+      if (recommendations.length === 0) {
+        list.innerHTML = "<p>Keine passenden Empfehlungen gefunden.</p>";
+        return;
+      }
+
+      recommendations.forEach((rec, index) => {
+        const card = document.createElement("div");
+        card.className = "recommendation-card";
+        card.style.marginBottom = "2rem";
+        card.style.width = "100%";
+        card.style.maxWidth = "2000px"; // Oder z. B. "1400px"
+        card.style.margin = "2rem auto"; // Zentriert auf der Seite
+
+        const spreadA = (rec.trade1.ask - rec.trade1.bid).toFixed(2);
+        const spreadB = (rec.trade2.ask - rec.trade2.bid).toFixed(2);
+
+        const spreadARel = (spreadA / rec.trade1.ask).toFixed(2);
+        const spreadBRel = (spreadB / rec.trade2.ask).toFixed(2);
+
+        card.innerHTML = `
+          <div style="display: flex; flex-direction: row; gap: 2rem; width: 100%; max-width: 1800px; font-family: sans-serif; align-items: flex-start;">
+
+            <!-- Linke Spalte: Tabellen -->
+            <div style="flex: 2; display: flex; flex-direction: column; gap: 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="recommendation-title" style="font-size: 1.2rem; font-weight: bold;">Empfehlung ${index + 1}</div>
+                <button class="dryRunButton" style="padding: 0.3rem 0.7rem;">Dry Run</button>
+              </div>
+
+              <!-- Gesamtübersicht -->
+              <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc;">
+                <thead>
+                  <tr style="background-color: #f5f5f5;">
+                    <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">NetDelta</th>
+                    <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">Kaufpreis (Ask)</th>
+                    <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">Verkaufspreis (Bid)</th>
+                    <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">Quantityfactor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.netDelta.toFixed(4)}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.totalBuyPrice.toFixed(2)} USD</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.totalSellPrice.toFixed(2)} USD</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;"><input type="number" value="1" min="1" step="1" class="quantityFactorInput" style="width: 60px;" /></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- Trade 1 -->
+              <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc;">
+                <thead>
+                  <tr style="background-color: #f0f8ff;">
+                    <th colspan="9" style="text-align: left; padding: 8px; font-weight: bold;">Trades</th>
+                  </tr>
+                  <tr style="background-color: #f5f5f5;">
+                    <th style="border: 1px solid #ccc; padding: 8px;">T</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Typ</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Strike</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">ATM</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Qty</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Bid</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Ask</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Spread</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">IV</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Laufzeit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade1.underlying}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade1.optionType}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade1.strike}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade1.atm}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade1.quantity}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade1.bid}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade1.ask}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${spreadA} (${spreadARel})</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade1.volatility}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade1.expirationDate}</td>
+                  </tr>
+
+                  <tr>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade2.underlying}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade2.optionType}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade2.strike}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade2.atm}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade2.quantity}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade2.bid}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade2.ask}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${spreadB} (${spreadBRel})</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade2.volatility}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade2.expirationDate}</td>
+                  </tr>
+
+                </tbody>
+              </table>
+
+            </div>
+
+            <!-- Rechte Spalte: DryRun -->
+            <div class="recommendation-dryrun" data-dryrun style="
+              flex: 1;
+              min-width: 250px;
+              font-size: 0.9rem;
+              color: #004d40;
+              padding-left: 1rem;
+              border-left: 2px solid #ccc;
+            "></div>
+
+
+          </div>
+        `;
+
+        const quantityInput = card.querySelector(".quantityFactorInput");
+        const dryrunBox = card.querySelector("[data-dryrun]");
+
+        quantityInput.addEventListener("input", () => {
+        	dryrunBox.innerHTML = ""; // Lösche Dry Run Ergebnis bei Änderung
+        });
+
+        const dryRunButton = card.querySelector(".dryRunButton");
+        dryRunButton.addEventListener("click", () => dryRun(rec, dryRunButton));
+
+        list.appendChild(card);
+      });
+
+      return recommendations.length;
+    }
+
+    function tryLogin(){
+        tta.onWebsocketAuthorized = onWebsocketAuthorized;
+        tta.onFeedMessage = onFeedMessage;
+
+        const sessionToken = getCookie("sessionToken");
+        if(sessionToken != null) {
+            var sessionContext = JSON.parse(localStorage.getItem("sessionContext"));
+            tta.loginWithSession(sessionContext).then(result => {
+                onLoginSuccess(result.user.username)
+            });
+        } else {
+            localStorage.setItem("sessionContext", "{}");
+        }
+    }
+
+    async function login() {
+        tta.onWebsocketAuthorized = onWebsocketAuthorized;
+        tta.onFeedMessage = onFeedMessage;
+        tta.login(document.getElementById("username").value, document.getElementById("password").value).then(result => {
+                const token = result["session-token"];
+                const expiration = result["session-expiration"]; // z. B. "2025-04-01T12:34:56Z"
+                const expires = new Date(expiration);
+                document.cookie = `sessionToken=${token}; expires=${expires.toUTCString()}; path=/`;
+                localStorage.setItem("sessionContext", JSON.stringify(result));
+                onLoginSuccess(result.user.username)
+    	    });
+    }
+
+    function debounce(func, delay) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), delay);
+      };
+    }
+
+    function handleSymbolSearch(inputId, suggestionsId) {
+      const input = document.getElementById(inputId);
+      const suggestionsBox = document.getElementById(suggestionsId);
+      const searchString = input.value.trim().toUpperCase();
+
+      if (searchString.length === 0) {
+        suggestionsBox.style.display = 'none';
+        suggestionsBox.innerHTML = '';
+        return;
+      }
+
+      tta.searchSymbol(searchString).then(results => {
+        if (!results || results.length === 0) {
+          suggestionsBox.style.display = 'none';
+          suggestionsBox.innerHTML = '';
+          return;
+        }
+
+        suggestionsBox.innerHTML = '';
+        let selectedIndex = -1;
+
+        results.forEach((result, index) => {
+          const div = document.createElement('div');
+          div.className = "suggestion-item";
+          div.setAttribute("data-index", index);
+
+          div.innerHTML = `
+            <div style="font-weight: bold;">${result.symbol}</div>
+            <div style="font-size: 0.9em; color: #666;">${result.description}</div>
+          `;
+
+          div.addEventListener('click', () => {
+            input.value = result.symbol;
+            suggestionsBox.style.display = 'none';
+          });
+
+          suggestionsBox.appendChild(div);
+        });
+
+        const items = suggestionsBox.querySelectorAll(".suggestion-item");
+        suggestionsBox.style.display = 'block';
+
+        input.onkeydown = (e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            selectedIndex = (selectedIndex + 1) % items.length;
+            updateActiveItem();
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+            updateActiveItem();
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            if (selectedIndex >= 0) {
+              items[selectedIndex].click();
+            }
+          } else if (e.key === "Tab") {
+              if (items.length > 0) {
+             //   e.preventDefault(); // Standardverhalten (Fokuswechsel) blockieren
+                items[0].click();   // Ersten Vorschlag übernehmen
+              }
+          } else if (e.key === "Escape") {
+            suggestionsBox.style.display = 'none';
+          }
+        };
+
+        function updateActiveItem() {
+          items.forEach((item, idx) => {
+            item.style.backgroundColor = idx === selectedIndex ? "#e0e0e0" : "";
+          });
+        }
+      });
+    }
+
+
+    async function loadExpirationsForSymbol(symbolInputId, expirationSelectId) {
+      const symbol = document.getElementById(symbolInputId).value.trim().toUpperCase();
+      const expirationSelect = document.getElementById(expirationSelectId);
+
+      if (!symbol) return;
+
+      try {
+        expirationSelect.innerHTML = '<option>Lade Verfallsdaten…</option>';
+        const expirations = await tta.getOptionExpiration(symbol);
+        expirationSelect.innerHTML = "";
+
+        if (!expirations || expirations.length === 0) {
+          expirationSelect.innerHTML = '<option value="">Keine Verfallsdaten gefunden</option>';
+          return;
+        }
+
+        const savedValue = localStorage.getItem(`tw_${expirationSelectId}`);
+        let foundMatch = false;
+
+        expirations.forEach(exp => {
+          const opt = document.createElement("option");
+          opt.value = exp["expiration-date"];
+          opt.textContent = `${exp["expiration-date"]} (${exp["expiration-type"]}, ${exp["days-to-expiration"]} Tage)`;
+
+          if (savedValue && exp["expiration-date"] === savedValue) {
+            opt.selected = true;
+            foundMatch = true;
+          }
+
+          expirationSelect.appendChild(opt);
+        });
+
+        if (!foundMatch) {
+          expirationSelect.selectedIndex = 0; // fallback auf erstes Element
+        }
+
+      } catch (err) {
+        console.error(`Fehler beim Laden der Verfallsdaten für ${symbolInputId}:`, err);
+        expirationSelect.innerHTML = '<option value="">Fehler beim Laden</option>';
+      }
+    }
+
+
+    function saveInputState() {
+      const keys = ["symbol1", "symbol2", "expiration1", "expiration2", "type1", "type2", "maxDelta"];
+      keys.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          localStorage.setItem(`tw_${id}`, el.value);
+        }
+      });
+    }
+
+    function loadInputState() {
+      const keys = ["symbol1", "symbol2", "type1", "type2", "maxDelta"];
+      keys.forEach(id => {
+        const savedValue = localStorage.getItem(`tw_${id}`);
+        if (savedValue !== null) {
+          const el = document.getElementById(id);
+          if (el) {
+              el.value = savedValue;
+              if(id === "symbol1") {
+                loadExpirationsForSymbol("symbol1", "expiration1");
+              }
+
+              if(id === "symbol2") {
+                loadExpirationsForSymbol("symbol2", "expiration2");
+              }
+          }
+        }
+      });
+    }
+
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    }
+
+    function closePositions() {
+
+      const checkboxes = document.querySelectorAll(".position-checkbox:checked");
+
+      if (checkboxes.length === 0) {
+        alert("Bitte mindestens eine Position auswählen.");
+        return;
+      }
+
+      const selectedSymbols = Array.from(checkboxes).map(cb => cb.dataset.symbol);
+
+      const accountId = document.getElementById("accountSelect").value;
+      var orders = []
+      selectedSymbols.forEach(symbol => {
+            var bid = document.getElementById(symbol + "_bid").innerText
+            var quantity = parseInt(document.getElementById(symbol + "_quantity").innerText)
+            //console.log(symbol + " " + bid + " " + quantity)
+
+
+    		var orderPayload = {
+    		  "order-type": "Limit",
+    		  "time-in-force": "Day",
+    		  "price": bid.toString(),
+    		  "price-effect": "Credit",
+    		  "legs": [
+    			{
+    			  "instrument-type": "Equity Option",
+    			  "symbol": symbol,
+    			  "quantity": quantity.toString(),
+    			  "action": "Sell to Close"
+    			}
+    		  ]
+    		}
+
+    		orders.push(orderPayload)
+
+/*
+            console.log(orderPayload)
+            tta.sendDryRun(accountId, orderPayload).then(result => {
+                console.log(result)
+    	    });
+*/
+//          sendOrder(accountId, orderPayload)
+
+        });
+
+
+        orders.forEach(order => {
+            sendOrder(accountId, order)
+        });
+
+    }
+
+//////////////////////////
+    const debouncedSearch1 = debounce(() => handleSymbolSearch('symbol1', 'suggestions1'), 300);
+    const debouncedSearch2 = debounce(() => handleSymbolSearch('symbol2', 'suggestions2'), 300);
+
+    document.getElementById('symbol1').addEventListener('input', debouncedSearch1);
+    document.getElementById('symbol2').addEventListener('input', debouncedSearch2);
+
+    document.getElementById("symbol1").addEventListener("blur", () => {
+      loadExpirationsForSymbol("symbol1", "expiration1");
+    });
+
+    document.getElementById("symbol2").addEventListener("blur", () => {
+      loadExpirationsForSymbol("symbol2", "expiration2");
+    });
+
+    [
+      "symbol1",
+      "symbol2",
+      "expiration1",
+      "expiration2",
+      "type1",
+      "type2",
+      "maxDelta"
+    ].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener("blur", () => {
+          if (el.value && el.value.trim() !== "") {
+            saveInputState();
+            //loadOptionChains();
+          }
+        });
+      }
+    });
+
+	window.dryRun = dryRun;
+	window.login = login;
+
+    document.getElementById("loginButton").addEventListener("click", login)
+	document.getElementById("loadButton").addEventListener("click", loadOptionChains)
+	document.getElementById("recommandationButton").addEventListener("click", loadRecommendations)
+    document.getElementById("accountSelect").addEventListener("change", loadPositions);
+    document.getElementById("closeAllPositionsButton").addEventListener("click", closePositions);
+    document.getElementById("loginButton").focus();
+
+    tryLogin()
+
+  </script>
+
+</body>
+</html>
+
