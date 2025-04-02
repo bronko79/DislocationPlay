@@ -3,8 +3,8 @@
 <head>
 	<meta charset="UTF-8">
 	<title>Tastyworks Login</title>
-	<link rel="stylesheet" href="style.css?7">
-	<script src="script.js?0" type="text/javascript"></script>
+	<link rel="stylesheet" href="style.css?0">
+	<script src="script.js?1" type="text/javascript"></script>
 </head>
 <body>
 	<div id="welcomeMessage" style="display: none;"></div>
@@ -57,8 +57,8 @@
 				</div>
 
 				<div style="margin-top: 1.5rem;">
-					<label for="maxDelta">Max. Net Delta Error:</label>
-					<input type="number" id="maxDelta" value="0.01" step="0.01" style="width: 100px;" />
+					<label for="maxDelta">NetDelta Range:</label>
+					<input type="number" id="maxDelta" value="1" step="1" style="width: 100px;" />
 				</div>
 
 				<button id="loadButton" style="display: none; margin-top: 1rem;">Load Option Chains</button>
@@ -77,10 +77,12 @@
 						<th style="border: 1px solid #ccc; padding: 6px;">Bid</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Ask</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Spread</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Opn</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Exp</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Delta</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Vega</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Qty</th>
-						<th style="border: 1px solid #ccc; padding: 6px;">Entry</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Cost</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">PnL</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">PnL%</th>
 					</tr>
@@ -92,15 +94,36 @@
 				</tbody>
 			</table>
 
-			<!-- Roter "Alle Schließen" Button -->
 			<div style="margin-top: 1rem; text-align: right;">
+
+                <div id="groupAssignmentDropdown" style="display: none; margin-top: 1rem;">
+                  <label style="font-size: 13px;">Gruppe wählen oder neu erstellen:</label>
+                  <select id="existingGroupSelect" style="padding: 5px; font-size: 13px; margin-right: 0.5rem;">
+                    <option value="">Neue Gruppe erstellen</option>
+                  </select>
+                  <input type="text" id="newGroupInput" placeholder="Neuer Gruppenname" style="padding: 5px; font-size: 13px;" />
+                  <button id="confirmAssignGroup" style="padding: 5px 10px; margin-left: 0.5rem;">Zuweisen</button>
+                </div>
+
+
+                <button id="assignGroupButton" style="
+                  background-color: #4CAF50;
+                  color: white;
+                  border: none;
+                  padding: 10px 16px;
+                  font-size: 12px;
+                  border-radius: 4px;
+                  cursor: pointer;
+                  margin-left: 1rem;
+                ">Gruppe vergeben</button>
+
 				<button id="closeAllPositionsButton" style="
 					display: none;
 					background-color: #d32f2f;
 					color: white;
 					border: none;
 					padding: 10px 16px;
-					font-size: 1rem;
+					font-size: 12px;
 					border-radius: 4px;
 					cursor: pointer;
 				">Selektierte Schließen</button>
@@ -121,6 +144,22 @@
     var optionChains = { };
 	var streamSymbolToSymbolMap = new Map();
 	var recommendationInitialLoaded = false
+
+    function getAllGroups() {
+      const groups = getSymbolGroups();
+      const all = new Set();
+      Object.values(groups).forEach(g => all.add(g));
+      return Array.from(all).sort();
+    }
+
+    function getSymbolGroups() {
+      const raw = localStorage.getItem("tw_symbolGroups");
+      return raw ? JSON.parse(raw) : {};
+    }
+
+    function saveSymbolGroups(groups) {
+      localStorage.setItem("tw_symbolGroups", JSON.stringify(groups));
+    }
 
     function onLoginSuccess(username){
         tta.connectWebsocket()
@@ -152,104 +191,110 @@
 	    loadInputState();
 
 	}
-    function loadPositions() {
-      const accountId = document.getElementById("accountSelect").value;
-      if (!accountId) return;
 
-      const tableBody = document.getElementById("positionsTableBody");
-      tableBody.innerHTML = `<tr><td colspan="12" style="padding: 8px; text-align: center;">Lade Daten…</td></tr>`;
+function loadPositions() {
+  const accountId = document.getElementById("accountSelect").value;
+  if (!accountId) return;
 
-      tta.getPositions(accountId).then(result => {
-        if (!result || result.length === 0) {
-          tableBody.innerHTML = `<tr><td colspan="12" style="padding: 8px; text-align: center;">Keine Positionen gefunden.</td></tr>`;
-          document.getElementById("closeAllPositionsButton").style.display = "none";
-          return;
+  const tableBody = document.getElementById("positionsTableBody");
+  tableBody.innerHTML = `<tr><td colspan="13" style="padding: 8px; text-align: center;">Lade Daten…</td></tr>`;
+
+  const groups = getSymbolGroups();
+
+  tta.getPositions(accountId).then(result => {
+
+    if (!result || result.length === 0) {
+      tableBody.innerHTML = `<tr><td colspan="13" style="padding: 8px; text-align: center;">Keine Positionen gefunden.</td></tr>`;
+      document.getElementById("closeAllPositionsButton").style.display = "none";
+      return;
+    }
+
+    document.getElementById("closeAllPositionsButton").style.display = "inline-block";
+    tableBody.innerHTML = "";
+
+    const grouped = {};
+
+    result.forEach(pos => {
+      const group = groups[pos.symbol] || "Ohne Gruppe";
+      if (!grouped[group]) grouped[group] = [];
+      grouped[group].push(pos);
+    });
+
+    Object.entries(grouped).forEach(([groupName, positions]) => {
+      const headerRow = document.createElement("tr");
+      headerRow.innerHTML = `
+        <td colspan="13" style="padding: 8px; font-weight: bold; background-color: #eee;">
+          ${groupName}
+        </td>`;
+      tableBody.appendChild(headerRow);
+
+      let groupCloseSum = 0;
+      let groupQuantitySum = 0;
+
+      positions.forEach(pos => {
+        const row = document.createElement("tr");
+        row.setAttribute("data-group", groupName);
+
+        row.innerHTML = `
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">
+            <input type="checkbox" class="position-checkbox" data-symbol="${pos.symbol}" />
+          </td>
+          <td style="border: 1px solid #ccc; padding: 6px;" id="${pos.symbol}_symbol">${pos.symbol}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_bid">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_ask">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_spread">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;">${Math.ceil((new Date() - new Date(pos["created-at"])) / (1000 * 60 * 60 * 24))}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;">${Math.floor((new Date(pos["expires-at"]) - new Date()) / (1000 * 60 * 60 * 24))}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_delta">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_vega">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_quantity">${pos.quantity}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_entry">${parseFloat(pos["close-price"]).toFixed(2)}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnl">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnlPer">-</td>
+          <td style="display: none;" id="${pos.symbol}_instrumentType">${pos["instrument-type"]}</td>
+          <td style="display: none;" id="${pos.symbol}_multiplier">${pos["multiplier"]}</td>
+        `;
+
+        tableBody.appendChild(row);
+
+        const streamerSymbol = tta.fullSymbolToStreamerSymbol(pos.symbol);
+        if (streamerSymbol) {
+          streamSymbolToSymbolMap.set(streamerSymbol, pos.symbol);
+          subscribeOption(streamerSymbol);
+        } else {
+          subscribeUnderlying(pos.symbol);
         }
 
-        document.getElementById("closeAllPositionsButton").style.display = "inline-block";
-        tableBody.innerHTML = "";
-
-        // Gruppieren nach Datum (YYYY-MM-DD)
-        const grouped = {};
-        result.forEach(pos => {
-          // new Date(pos["created-at"]).getTime()
-          const date = pos["created-at"].substring(0, 10);
-          if (!grouped[date]) grouped[date] = [];
-          grouped[date].push(pos);
-        });
-
-        // Für jede Gruppe: Überschrift, Zeilen, Zwischensumme
-        Object.entries(grouped).forEach(([date, positions]) => {
-          // Gruppen-Überschrift
-          const headerRow = document.createElement("tr");
-          headerRow.innerHTML = `
-            <td colspan="12" style="padding: 8px; font-weight: bold; background-color: #eee;">
-              ${date}
-            </td>`;
-          tableBody.appendChild(headerRow);
-
-          let groupDeltaSum = 0;
-          let groupCloseSum = 0;
-          let groupQuantitySum = 0;
-
-          positions.forEach(pos => {
-            const row = document.createElement("tr");
-            row.setAttribute("data-group", date);
-
-            row.innerHTML = `
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">
-                <input type="checkbox" class="position-checkbox" data-symbol="${pos.symbol}" />
-              </td>
-              <td style="border: 1px solid #ccc; padding: 6px;" id="${pos.symbol}_symbol">${pos.symbol}</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_bid">-</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_ask">-</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_spread">-</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_delta">-</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_vega">-</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_quantity">${pos.quantity}</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_entry">${parseFloat(pos["close-price"]).toFixed(2)}</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnl">-</td>
-              <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnlPer">-</td>
-            `;
-
-            tableBody.appendChild(row);
-
-            const streamerSymbol = tta.fullSymbolToStreamerSymbol(pos.symbol);
-            streamSymbolToSymbolMap.set(streamerSymbol, pos.symbol);
-            subscribeOption(streamerSymbol);
-
-            groupCloseSum += parseFloat(pos["close-price"]);
-            groupQuantitySum += parseInt(pos.quantity);
-          });
-
-          // Zwischensumme-Zeile
-          const sumRow = document.createElement("tr");
-          sumRow.classList.add("group-summary");
-          sumRow.setAttribute("data-group", date);
-          sumRow.innerHTML = `
-            <td colspan="2" style="text-align: right; font-weight: bold; padding: 6px;">Zwischensumme:</td>
-            <td class="group-bid-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-            <td class="group-ask-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-            <td class="group-spread-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-
-
-            <td class="group-delta-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-            <td class="group-vega-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-            <!-- <td colspan="2"></td> -->
-
-            <td class="group-qty-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupQuantitySum}</td>
-            <td class="group-close-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupCloseSum.toFixed(2)}</td>
-            <td class="group-pnl-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-            <td class="group-pnlPer-${date}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-          `;
-          tableBody.appendChild(sumRow);
-        });
-
-      }).catch(err => {
-        console.error("Fehler beim Laden der Positionen:", err);
-        tableBody.innerHTML = `<tr><td colspan="11" style="padding: 8px; text-align: center;">Fehler beim Laden.</td></tr>`;
+        groupCloseSum += parseFloat(pos["close-price"]);
+        groupQuantitySum += parseInt(pos.quantity);
       });
-    }
+
+      const sumRow = document.createElement("tr");
+      sumRow.classList.add("group-summary");
+      sumRow.setAttribute("data-group", groupName);
+      sumRow.innerHTML = `
+        <td colspan="2" style="text-align: right; font-weight: bold; padding: 6px;">Zwischensumme:</td>
+        <td class="group-bid-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+        <td class="group-ask-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+        <td class="group-spread-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+        <td style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td> <!-- Alter -->
+        <td style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td> <!-- Alter -->
+        <td class="group-delta-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+        <td class="group-vega-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+        <td class="group-qty-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupQuantitySum}</td>
+        <td class="group-close-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupCloseSum.toFixed(2)}</td>
+        <td class="group-pnl-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+        <td class="group-pnlPer-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
+      `;
+      tableBody.appendChild(sumRow);
+    });
+
+  }).catch(err => {
+    console.error("Fehler beim Laden der Positionen:", err);
+    tableBody.innerHTML = `<tr><td colspan="12" style="padding: 8px; text-align: center;">Fehler beim Laden.</td></tr>`;
+  });
+}
+
 
 
     function onWebsocketAuthorized(){
@@ -287,16 +332,10 @@
 		expectedInitialMessages: 0
 		};
 
-		// Chains abrufen
-		//tta.getOptionChain(sym1);
-		//tta.getOptionChain(sym2);
-
-
         Object.keys(optionChains).forEach(key => {
 			tta.getOptionChain(key).then(result => {
 				var optionChainsItems = result.items
 				var underlying = optionChainsItems[0]['underlying-symbol']
-
 				subscribeUnderlying(underlying)
 				for(var i=0; i< optionChainsItems.length; i++){
 					var optionChainItem = optionChainsItems[i]
@@ -304,10 +343,8 @@
 					   && optionChainItem['expiration-date'] === optionChains[underlying].expirationDate && optionChainItem['option-type'] === optionChains[underlying].optionType) {
 						var symbol = optionChainItem['streamer-symbol']
 						if(optionChains[ optionChainItem['underlying-symbol'] ] !== undefined) {
-							//tta.subscribeSymbol( [ {type: "Quote", symbol: symbol}, {type: "Greeks", symbol: symbol} ] )
 							subscribeOption(symbol)
 							optionChains[ optionChainItem['underlying-symbol'] ].expectedInitialMessages++;
-
 							streamSymbolToSymbolMap.set(optionChainItem['streamer-symbol'] , optionChainItem.symbol)
 						}
 					}
@@ -325,164 +362,151 @@
     }
 
     function subscribeUnderlying(underlying) {
-        tta.subscribeSymbol( [ { "symbol": underlying + "{=1d}", "type": "Candle", "fromTime": new Date().getTime() - (86400000 * 3)} ] )
+        tta.subscribeSymbol( [ {type: "Quote", symbol: underlying}, { "symbol": underlying + "{=1d}", "type": "Candle", "fromTime": new Date().getTime() - (86400000 * 3)} ] )
     }
 
     function updatePositionGreeks(item, fullSymbol) {
         if (item.eventType !== 'Greeks' || !item.isOption) return;
+        var quantityCell = document.getElementById(fullSymbol + "_quantity")
+        if(quantityCell) {
+            var quantity = parseFloat(quantityCell.innerText)
+            var deltaCell = document.getElementById(fullSymbol + "_delta")
+            var vegaCell = document.getElementById(fullSymbol + "_vega")
 
-        var deltaCell = document.getElementById(fullSymbol + "_delta")
-        var vegaCell = document.getElementById(fullSymbol + "_vega")
+            if (deltaCell) deltaCell.innerText = (100 * item.delta * quantity).toFixed(2);
+            if (vegaCell) vegaCell.innerText = (100 * item.vega * quantity).toFixed(2);
 
-        if (deltaCell) deltaCell.innerText = item.delta.toFixed(2);
-        if (vegaCell) vegaCell.innerText = item.vega.toFixed(2);
+            const row = document.getElementById(`${fullSymbol}_symbol`)?.closest("tr");
+            if (row && row.dataset.group) {
+                const group = row.dataset.group;
+                const rows = document.querySelectorAll(`tr[data-group="${group}"]`);
+                let sumDelta = 0, sumVega = 0
 
-        const row = document.getElementById(`${fullSymbol}_symbol`)?.closest("tr");
-        if (row && row.dataset.group) {
-            const group = row.dataset.group;
+                rows.forEach(r => {
+                  const sym = r.querySelector("[id$='_symbol']")?.id?.replace("_symbol", "");
+                  if (!sym) return;
+                  const d = parseFloat(document.getElementById(`${sym}_delta`)?.innerText);
+                  const v = parseFloat(document.getElementById(`${sym}_vega`)?.innerText);
 
+                  if (!isNaN(d)) sumDelta += d;
+                  if (!isNaN(v)) sumVega += v;
+                });
 
-            const rows = document.querySelectorAll(`tr[data-group="${group}"]`);
-            let sumDelta = 0, sumVega = 0
-
-            rows.forEach(r => {
-              const sym = r.querySelector("[id$='_symbol']")?.id?.replace("_symbol", "");
-              if (!sym) return;
-              const d = parseFloat(document.getElementById(`${sym}_delta`)?.innerText);
-              const v = parseFloat(document.getElementById(`${sym}_vega`)?.innerText);
-
-              if (!isNaN(d)) sumDelta += d;
-              if (!isNaN(v)) sumVega += v;
-            });
-
-            const groupRow = document.querySelector(`.group-summary[data-group="${group}"]`);
-            if (groupRow) {
-                groupRow.querySelector(`.group-delta-${group}`).innerText = sumDelta.toFixed(2);
-                groupRow.querySelector(`.group-vega-${group}`).innerText = sumVega.toFixed(2);
+                const groupRow = document.querySelector(`.group-summary[data-group="${group}"]`);
+                if (groupRow) {
+                    groupRow.querySelector(`.group-delta-${group}`).innerText = sumDelta.toFixed(2);
+                    groupRow.querySelector(`.group-vega-${group}`).innerText = sumVega.toFixed(2);
+                }
             }
         }
-
-
-        /*
-        if(item.eventType === 'Greeks' && item.isOption == true) {
-    		var deltaCell = document.getElementById(fullSymbol + "_delta")
-    		if(deltaCell !== null) {
-                deltaCell.innerText = item.delta.toFixed(3);
-    		}
-
-    		var vegaCell = document.getElementById(fullSymbol + "_vega")
-    		if(vegaCell !== null) {
-                vegaCell.innerText = item.vega.toFixed(3);
-    		}
-        }
-        */
     }
 
-function updatePositionPrices(item, fullSymbol) {
-  if (item.eventType !== 'Quote' || !item.isOption) return;
+    function updatePositionPrices(item, fullSymbol) {
 
-  const bidCell = document.getElementById(`${fullSymbol}_bid`);
-  const askCell = document.getElementById(`${fullSymbol}_ask`);
-  const entryCell = document.getElementById(`${fullSymbol}_entry`);
-  const pnlCell = document.getElementById(`${fullSymbol}_pnl`);
-  const pnlPerCell = document.getElementById(`${fullSymbol}_pnlPer`);
-  const quantityCell = document.getElementById(`${fullSymbol}_quantity`);
-  const spreadCell = document.getElementById(`${fullSymbol}_spread`);
+      if (item.eventType !== 'Quote') return;
 
-  if (!entryCell || !quantityCell) return;
+      const bidCell = document.getElementById(`${fullSymbol}_bid`);
+      const askCell = document.getElementById(`${fullSymbol}_ask`);
+      const entryCell = document.getElementById(`${fullSymbol}_entry`);
+      const pnlCell = document.getElementById(`${fullSymbol}_pnl`);
+      const pnlPerCell = document.getElementById(`${fullSymbol}_pnlPer`);
+      const quantityCell = document.getElementById(`${fullSymbol}_quantity`);
+      const spreadCell = document.getElementById(`${fullSymbol}_spread`);
 
-  const entryPrice = parseFloat(entryCell.innerText);
-  const quantity = parseInt(quantityCell.innerText);
-
-  // Aktualisiere Bid/Ask
-  if (bidCell) bidCell.innerText = item.bidPrice.toFixed(2);
-  if (askCell) askCell.innerText = item.askPrice.toFixed(2);
-
-  // Spread aktualisieren
-  if (spreadCell && askCell && bidCell) {
-    const spreadAbs = item.askPrice - item.bidPrice;
-    const spreadRel = spreadAbs / item.askPrice;
-    spreadCell.innerText = `${spreadAbs.toFixed(2)} (${spreadRel.toFixed(2)})`;
-  }
-
-  // PnL & % aktualisieren
-  const pnl = (item.bidPrice - entryPrice) * quantity;
-  const pnlPer = (pnl / entryPrice) * 100;
-
-  pnlCell.innerText = pnl.toFixed(2);
-  pnlPerCell.innerText = pnlPer.toFixed(2) + "%";
-
-  // Farben setzen
-  if (pnl > 0) {
-    pnlCell.style.color = "green";
-    pnlPerCell.style.color = "green";
-  } else if (pnl < 0) {
-    pnlCell.style.color = "red";
-    pnlPerCell.style.color = "red";
-  } else {
-    pnlCell.style.color = "inherit";
-    pnlPerCell.style.color = "inherit";
-  }
-
-  // Update Gruppensummen, wenn vorhanden
-  const row = document.getElementById(`${fullSymbol}_symbol`)?.closest("tr");
-  if (row && row.dataset.group) {
-    const group = row.dataset.group;
-    // Summe über alle Zeilen in dieser Gruppe bilden
-    const rows = document.querySelectorAll(`tr[data-group="${group}"]`);
-    let sumBid = 0, sumAsk = 0, sumPnl = 0, sumQty = 0, sumEntry = 0, sumDelta = 0, sumVega = 0;
-
-    rows.forEach(r => {
-      const sym = r.querySelector("[id$='_symbol']")?.id?.replace("_symbol", "");
-      if (!sym) return;
-
-      const b = parseFloat(document.getElementById(`${sym}_bid`)?.innerText);
-      const a = parseFloat(document.getElementById(`${sym}_ask`)?.innerText);
-      const p = parseFloat(document.getElementById(`${sym}_pnl`)?.innerText);
-      const q = parseInt(document.getElementById(`${sym}_quantity`)?.innerText);
-      const e = parseFloat(document.getElementById(`${sym}_entry`)?.innerText);
+      if (!entryCell || !quantityCell) return;
 
 
-      if (!isNaN(b)) sumBid += b;
-      if (!isNaN(a)) sumAsk += a;
-      if (!isNaN(p)) sumPnl += p;
-      if (!isNaN(q)) sumQty += q;
-      if (!isNaN(e)) sumEntry += e;
-    });
+      const quantity = parseInt(quantityCell.innerText);
+      const entryPrice = parseFloat(entryCell.innerText) * 100 * quantity;
 
-    const groupRow = document.querySelector(`.group-summary[data-group="${group}"]`);
-    if (groupRow) {
-      groupRow.querySelector(`.group-bid-${group}`).innerText = sumBid.toFixed(2);
-      groupRow.querySelector(`.group-ask-${group}`).innerText = sumAsk.toFixed(2);
+      // Aktualisiere Bid/Ask
+      if (bidCell) bidCell.innerText = item.bidPrice.toFixed(2);
+      if (askCell) askCell.innerText = item.askPrice.toFixed(2);
 
-      const spread = sumAsk - sumBid;
-      const spreadRel = sumAsk > 0 ? (spread / sumAsk).toFixed(2) : "0.00";
-      groupRow.querySelector(`.group-spread-${group}`).innerText = `${spread.toFixed(2)} (${spreadRel})`;
+      // Spread aktualisieren
+      if (spreadCell && askCell && bidCell) {
+        const spreadAbs = item.askPrice - item.bidPrice;
+        const spreadRel = spreadAbs / item.askPrice;
+        spreadCell.innerText = `${spreadAbs.toFixed(2)} (${spreadRel.toFixed(2)})`;
+      }
 
-      groupRow.querySelector(`.group-pnl-${group}`).innerText = sumPnl.toFixed(2);
-      groupRow.querySelector(`.group-qty-${group}`).innerText = sumQty.toFixed(0);
-      groupRow.querySelector(`.group-close-${group}`).innerText = sumEntry.toFixed(2);
+      // PnL & % aktualisieren
+      const pnl = ((item.bidPrice * 100) - entryPrice) * quantity;
+      const pnlPer = (pnl / entryPrice) * 100;
 
-      const pnlPerGroup = sumEntry > 0 ? ((sumPnl / sumEntry) * 100).toFixed(2) : "0.00";
-      const pnlPerCell = groupRow.querySelector(`.group-pnlPer-${group}`);
-      pnlPerCell.innerText = pnlPerGroup + "%";
+      pnlCell.innerText = pnl.toFixed(2);
+      pnlPerCell.innerText = pnlPer.toFixed(2) + "%";
 
-      // Farbe
-      if (sumPnl > 0) {
-        groupRow.querySelector(`.group-pnl-${group}`).style.color = "green";
+      // Farben setzen
+      if (pnl > 0) {
+        pnlCell.style.color = "green";
         pnlPerCell.style.color = "green";
-      } else if (sumPnl < 0) {
-        groupRow.querySelector(`.group-pnl-${group}`).style.color = "red";
+      } else if (pnl < 0) {
+        pnlCell.style.color = "red";
         pnlPerCell.style.color = "red";
       } else {
-        groupRow.querySelector(`.group-pnl-${group}`).style.color = "inherit";
+        pnlCell.style.color = "inherit";
         pnlPerCell.style.color = "inherit";
       }
+
+      // Update Gruppensummen, wenn vorhanden
+      const row = document.getElementById(`${fullSymbol}_symbol`)?.closest("tr");
+      if (row && row.dataset.group) {
+        const group = row.dataset.group;
+        // Summe über alle Zeilen in dieser Gruppe bilden
+        const rows = document.querySelectorAll(`tr[data-group="${group}"]`);
+        let sumBid = 0, sumAsk = 0, sumPnl = 0, sumQty = 0, sumEntry = 0, sumDelta = 0, sumVega = 0;
+
+        rows.forEach(r => {
+          const sym = r.querySelector("[id$='_symbol']")?.id?.replace("_symbol", "");
+          if (!sym) return;
+
+          const b = parseFloat(document.getElementById(`${sym}_bid`)?.innerText);
+          const a = parseFloat(document.getElementById(`${sym}_ask`)?.innerText);
+          const p = parseFloat(document.getElementById(`${sym}_pnl`)?.innerText);
+          const q = parseInt(document.getElementById(`${sym}_quantity`)?.innerText);
+          const e = parseFloat(document.getElementById(`${sym}_entry`)?.innerText);
+
+
+          if (!isNaN(b)) sumBid += b;
+          if (!isNaN(a)) sumAsk += a;
+          if (!isNaN(p)) sumPnl += p;
+          if (!isNaN(q)) sumQty += q;
+          if (!isNaN(e)) sumEntry += e;
+        });
+
+        const groupRow = document.querySelector(`.group-summary[data-group="${group}"]`);
+        if (groupRow) {
+          groupRow.querySelector(`.group-bid-${group}`).innerText = sumBid.toFixed(2);
+          groupRow.querySelector(`.group-ask-${group}`).innerText = sumAsk.toFixed(2);
+
+          const spread = sumAsk - sumBid;
+          const spreadRel = sumAsk > 0 ? (spread / sumAsk).toFixed(2) : "0.00";
+          groupRow.querySelector(`.group-spread-${group}`).innerText = `${spread.toFixed(2)} (${spreadRel})`;
+
+          groupRow.querySelector(`.group-pnl-${group}`).innerText = sumPnl.toFixed(2);
+          groupRow.querySelector(`.group-qty-${group}`).innerText = sumQty.toFixed(0);
+          groupRow.querySelector(`.group-close-${group}`).innerText = sumEntry.toFixed(2);
+
+          const pnlPerGroup = sumEntry > 0 ? ((sumPnl / (sumEntry*100)) * 100).toFixed(2) : "0.00";
+          const pnlPerCell = groupRow.querySelector(`.group-pnlPer-${group}`);
+          pnlPerCell.innerText = pnlPerGroup + "%";
+
+          // Farbe
+          if (sumPnl > 0) {
+            groupRow.querySelector(`.group-pnl-${group}`).style.color = "green";
+            pnlPerCell.style.color = "green";
+          } else if (sumPnl < 0) {
+            groupRow.querySelector(`.group-pnl-${group}`).style.color = "red";
+            pnlPerCell.style.color = "red";
+          } else {
+            groupRow.querySelector(`.group-pnl-${group}`).style.color = "inherit";
+            pnlPerCell.style.color = "inherit";
+          }
+        }
+      }
+
     }
-  }
-
-}
-
 
     function onFeedMessage(item){
         if(optionChains[item.underlying] !== undefined) {
@@ -494,8 +518,8 @@ function updatePositionPrices(item, fullSymbol) {
                 }
 
                 if(item.eventType === 'Greeks') {
-                    optionChains[item.underlying].options[item.strike].delta = item.delta
-                    optionChains[item.underlying].options[item.strike].vega = item.vega
+                    optionChains[item.underlying].options[item.strike].delta = (item.delta * 100)
+                    optionChains[item.underlying].options[item.strike].vega = (item.vega * 100)
                     optionChains[item.underlying].options[item.strike].volatility = item.volatility
                     optionChains[item.underlying].options[item.strike].strike = item.strike
     				optionChains[item.underlying].options[item.strike].eventSymbol = item.eventSymbol
@@ -539,8 +563,12 @@ function updatePositionPrices(item, fullSymbol) {
         }
 
         var fullSymbol = streamSymbolToSymbolMap.get(item.eventSymbol)
-        updatePositionPrices(item, fullSymbol)
-        updatePositionGreeks(item, fullSymbol)
+        if(fullSymbol !== undefined) {
+            updatePositionPrices(item, fullSymbol)
+            updatePositionGreeks(item, fullSymbol)
+        } else {
+            updatePositionPrices(item, fullSymbol)
+        }
 	}
 
     function getRecommendations(maxNetDeltaError, minQuantity = 1, maxQuantity = 2) {
@@ -551,7 +579,12 @@ function updatePositionPrices(item, fullSymbol) {
 			var recommandation = undefined
 			var strikeArrayA = [...Object.keys(optionChains[symbols[0]].options)]
 			var strikeArrayB = [...Object.keys(optionChains[symbols[1]].options)]
-			strikeArrayB.reverse()
+			if (optionChains[symbols[0]].optionType === 'P') {
+			    strikeArrayA.reverse()
+			}
+			if (optionChains[symbols[1]].optionType === 'P') {
+			    strikeArrayB.reverse()
+			}
 			var startIndexA = strikeArrayA.indexOf(optionChains[symbols[0]].atmOptionStrike.toString())
 			var startIndexB = strikeArrayB.indexOf(optionChains[symbols[1]].atmOptionStrike.toString())
 			var iterations = 6
@@ -569,22 +602,16 @@ function updatePositionPrices(item, fullSymbol) {
 								    if(!tmpStrikeCombis.has(strikeCombiKey)) {
     									var askA = optionChains[symbols[0]].options[optionItemA.strike].ask
     									var askB = optionChains[symbols[1]].options[optionItemB.strike].ask
-
     									var bidA = optionChains[symbols[0]].options[optionItemA.strike].bid
     									var bidB = optionChains[symbols[1]].options[optionItemB.strike].bid
-
-                                        var volatilityA = (optionChains[symbols[0]].options[optionItemA.strike].volatility * 100).toFixed(2) + "%"
-    									var volatilityB = (optionChains[symbols[1]].options[optionItemB.strike].volatility * 100).toFixed(2) + "%"
-
+                                        var volatilityA = optionChains[symbols[0]].options[optionItemA.strike].volatility
+    									var volatilityB = optionChains[symbols[1]].options[optionItemB.strike].volatility
     									var atmA = optionChains[symbols[0]].atmOptionStrike
     									var atmB = optionChains[symbols[1]].atmOptionStrike
-
     									var expirationDateA = optionChains[symbols[0]].expirationDate
     									var expirationDateB = optionChains[symbols[1]].expirationDate
-
     									var symbolA = streamSymbolToSymbolMap.get(optionChains[symbols[0]].options[optionItemA.strike].eventSymbol)
     									var symbolB = streamSymbolToSymbolMap.get(optionChains[symbols[1]].options[optionItemB.strike].eventSymbol)
-
     									var recommendation = {
     										netDelta: netDelta,
     										totalBuyPrice: (askA * qa) + (askB * qb),
@@ -669,7 +696,7 @@ function updatePositionPrices(item, fullSymbol) {
                 const result = `
                   <div style="display: flex; flex-direction: column; gap: 1rem; width: 100%;">
 
-                    <div style="font-size: 1rem; font-weight: bold;">Dry Run Ergebnis</div>
+                    <div style="font-size: 12px; font-weight: bold;">Dry Run Ergebnis</div>
 
                     <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc;">
                       <thead>
@@ -751,12 +778,12 @@ function updatePositionPrices(item, fullSymbol) {
         const spreadBRel = (spreadB / rec.trade2.ask).toFixed(2);
 
         card.innerHTML = `
-          <div style="display: flex; flex-direction: row; gap: 2rem; width: 100%; max-width: 1800px; font-family: sans-serif; align-items: flex-start;">
+          <div style="display: flex; flex-direction: row; gap: 2rem; width: 100%; max-width: 1800px; font-size: 12px; font-family: sans-serif; align-items: flex-start;">
 
             <!-- Linke Spalte: Tabellen -->
             <div style="flex: 2; display: flex; flex-direction: column; gap: 1rem;">
               <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div class="recommendation-title" style="font-size: 1.2rem; font-weight: bold;">Empfehlung ${index + 1}</div>
+                <div class="recommendation-title" style="font-size: 12px; font-weight: bold;">Empfehlung ${index + 1}</div>
                 <button class="dryRunButton" style="padding: 0.3rem 0.7rem;">Dry Run</button>
               </div>
 
@@ -773,9 +800,9 @@ function updatePositionPrices(item, fullSymbol) {
                 <tbody>
                   <tr>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.netDelta.toFixed(4)}</td>
-                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.totalBuyPrice.toFixed(2)} USD</td>
-                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.totalSellPrice.toFixed(2)} USD</td>
-                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;"><input type="number" value="1" min="1" step="1" class="quantityFactorInput" style="width: 60px;" /></td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${rec.totalBuyPrice.toFixed(2)}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${rec.totalSellPrice.toFixed(2)}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;"><input type="number" value="1" min="1" step="1" class="quantityFactorInput" style="width: 60px; height:20px;" /></td>
                   </tr>
                 </tbody>
               </table>
@@ -784,7 +811,7 @@ function updatePositionPrices(item, fullSymbol) {
               <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc;">
                 <thead>
                   <tr style="background-color: #f0f8ff;">
-                    <th colspan="9" style="text-align: left; padding: 8px; font-weight: bold;">Trades</th>
+                    <th colspan="10" style="text-align: left; padding: 8px; font-weight: bold;">Trades</th>
                   </tr>
                   <tr style="background-color: #f5f5f5;">
                     <th style="border: 1px solid #ccc; padding: 8px;">T</th>
@@ -809,7 +836,7 @@ function updatePositionPrices(item, fullSymbol) {
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade1.bid}</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade1.ask}</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${spreadA} (${spreadARel})</td>
-                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade1.volatility}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${(rec.trade1.volatility * 100).toFixed(2)}%</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade1.expirationDate}</td>
                   </tr>
 
@@ -822,7 +849,7 @@ function updatePositionPrices(item, fullSymbol) {
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade2.bid}</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.trade2.ask}</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${spreadB} (${spreadBRel})</td>
-                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade2.volatility}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${(rec.trade2.volatility * 100).toFixed(2)}%</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${rec.trade2.expirationDate}</td>
                   </tr>
 
@@ -835,7 +862,7 @@ function updatePositionPrices(item, fullSymbol) {
             <div class="recommendation-dryrun" data-dryrun style="
               flex: 1;
               min-width: 250px;
-              font-size: 0.9rem;
+              font-size: 12px;
               color: #004d40;
               padding-left: 1rem;
               border-left: 2px solid #ccc;
@@ -925,7 +952,7 @@ function updatePositionPrices(item, fullSymbol) {
 
           div.innerHTML = `
             <div style="font-weight: bold;">${result.symbol}</div>
-            <div style="font-size: 0.9em; color: #666;">${result.description}</div>
+            <div style="font-size: 12px; color: #666;">${result.description}</div>
           `;
 
           div.addEventListener('click', () => {
@@ -1105,6 +1132,26 @@ function updatePositionPrices(item, fullSymbol) {
 
     }
 
+    function assignGroupToSelectedPositions() {
+      const dropdown = document.getElementById("groupAssignmentDropdown");
+      const existingGroups = getAllGroups();
+      const select = document.getElementById("existingGroupSelect");
+      const input = document.getElementById("newGroupInput");
+
+      // Reset Dropdown
+      select.innerHTML = `<option value="">Neue Gruppe erstellen</option>`;
+      existingGroups.forEach(g => {
+        const opt = document.createElement("option");
+        opt.value = g;
+        opt.text = g;
+        select.appendChild(opt);
+      });
+
+      input.value = "";
+      dropdown.style.display = "block";
+    }
+
+
 //////////////////////////
     const debouncedSearch1 = debounce(() => handleSymbolSearch('symbol1', 'suggestions1'), 300);
     const debouncedSearch2 = debounce(() => handleSymbolSearch('symbol2', 'suggestions2'), 300);
@@ -1148,7 +1195,42 @@ function updatePositionPrices(item, fullSymbol) {
 	document.getElementById("recommandationButton").addEventListener("click", loadRecommendations)
     document.getElementById("accountSelect").addEventListener("change", loadPositions);
     document.getElementById("closeAllPositionsButton").addEventListener("click", closePositions);
+    document.getElementById("assignGroupButton").addEventListener("click", assignGroupToSelectedPositions);
     document.getElementById("loginButton").focus();
+
+
+
+
+    document.getElementById("confirmAssignGroup").addEventListener("click", () => {
+      const checkboxes = document.querySelectorAll(".position-checkbox:checked");
+      if (checkboxes.length === 0) {
+        alert("Bitte mindestens eine Position auswählen.");
+        return;
+      }
+
+      const selectedGroup = document.getElementById("existingGroupSelect").value;
+      const newGroup = document.getElementById("newGroupInput").value.trim();
+      const finalGroup = newGroup || selectedGroup;
+
+      if (!finalGroup) {
+        alert("Bitte einen Gruppennamen eingeben oder auswählen.");
+        return;
+      }
+
+      const groups = getSymbolGroups();
+      checkboxes.forEach(cb => {
+        const symbol = cb.dataset.symbol;
+        groups[symbol] = finalGroup;
+      });
+
+      saveSymbolGroups(groups);
+      document.getElementById("groupAssignmentDropdown").style.display = "none";
+      loadPositions();
+    });
+
+
+
+
 
     tryLogin()
 
