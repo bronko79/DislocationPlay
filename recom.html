@@ -79,9 +79,10 @@
 						<th style="border: 1px solid #ccc; padding: 6px;">Spread</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Opn</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Exp</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Qty</th>
+						<th style="border: 1px solid #ccc; padding: 6px;">Avg</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Delta</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Vega</th>
-						<th style="border: 1px solid #ccc; padding: 6px;">Qty</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">Cost</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">PnL</th>
 						<th style="border: 1px solid #ccc; padding: 6px;">PnL%</th>
@@ -116,6 +117,16 @@
                   cursor: pointer;
                   margin-left: 1rem;
                 ">Gruppe vergeben</button>
+
+				<button id="rebalanceDeltaButton" style="
+					background-color: #d32f2f;
+					color: white;
+					border: none;
+					padding: 10px 16px;
+					font-size: 12px;
+					border-radius: 4px;
+					cursor: pointer;
+				">Delta Ausgleichen</button>
 
 				<button id="closeAllPositionsButton" style="
 					display: none;
@@ -202,7 +213,7 @@ function loadPositions() {
   const groups = getSymbolGroups();
 
   tta.getPositions(accountId).then(result => {
-
+    console.log(result)
     if (!result || result.length === 0) {
       tableBody.innerHTML = `<tr><td colspan="13" style="padding: 8px; text-align: center;">Keine Positionen gefunden.</td></tr>`;
       document.getElementById("closeAllPositionsButton").style.display = "none";
@@ -213,6 +224,36 @@ function loadPositions() {
     tableBody.innerHTML = "";
 
     const grouped = {};
+
+
+result.push({
+    "account-number": "5WY78379",
+    "instrument-type": "Equity",
+    "symbol": "VXX",
+    "underlying-symbol": "VXX",
+    "quantity": 0,
+    "average-daily-market-close-price": "5.58",
+    "average-open-price": "54.88",
+    "average-yearly-market-close-price": "4.88",
+    "close-price": "55.58",
+    "cost-effect": "Credit",
+    "is-frozen": false,
+    "is-suppressed": false,
+    "multiplier": 1,
+    "quantity-direction": "Long",
+    "restricted-quantity": 0,
+    "realized-day-gain": "0.0",
+    "realized-day-gain-date": "2025-03-31",
+    "realized-day-gain-effect": "None",
+    "realized-today": "0.0",
+    "realized-today-date": "2025-03-31",
+    "realized-today-effect": "None",
+    "created-at": "2025-03-31T14:15:23.152+00:00",
+    "updated-at": "2025-03-31T14:15:24.808+00:00"
+});
+
+
+
 
     result.forEach(pos => {
       const group = groups[pos.symbol] || "Ohne Gruppe";
@@ -240,19 +281,23 @@ function loadPositions() {
             <input type="checkbox" class="position-checkbox" data-symbol="${pos.symbol}" />
           </td>
           <td style="border: 1px solid #ccc; padding: 6px;" id="${pos.symbol}_symbol">${pos.symbol}</td>
-          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_bid">-</td>
-          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_ask">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" class="${pos.symbol}_bid" id="${pos.symbol}_bid">-</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" class="${pos.symbol}_ask" id="${pos.symbol}_ask">-</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_spread">-</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;">${Math.ceil((new Date() - new Date(pos["created-at"])) / (1000 * 60 * 60 * 24))}</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;">${Math.floor((new Date(pos["expires-at"]) - new Date()) / (1000 * 60 * 60 * 24))}</td>
-          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_delta">-</td>
-          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_vega">-</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_quantity">${pos.quantity}</td>
-          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_entry">${parseFloat(pos["close-price"]).toFixed(2)}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_avgopen">${pos["average-open-price"]}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_delta">${pos.quantity}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_vega">0</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_entry">${parseFloat(pos["average-open-price"] * pos["multiplier"] * pos.quantity).toFixed(2)}</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnl">-</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_pnlPer">-</td>
           <td style="display: none;" id="${pos.symbol}_instrumentType">${pos["instrument-type"]}</td>
           <td style="display: none;" id="${pos.symbol}_multiplier">${pos["multiplier"]}</td>
+          <td style="display: none;" id="${pos.symbol}_underlying">${pos["underlying-symbol"]}</td>
+          <td style="display: none;" class="${pos["underlying-symbol"]}_bid">1</td>
+          <td style="display: none;" class="${pos["underlying-symbol"]}_ask">2</td>
         `;
 
         tableBody.appendChild(row);
@@ -261,6 +306,7 @@ function loadPositions() {
         if (streamerSymbol) {
           streamSymbolToSymbolMap.set(streamerSymbol, pos.symbol);
           subscribeOption(streamerSymbol);
+          subscribeUnderlying(pos["underlying-symbol"])
         } else {
           subscribeUnderlying(pos.symbol);
         }
@@ -273,15 +319,11 @@ function loadPositions() {
       sumRow.classList.add("group-summary");
       sumRow.setAttribute("data-group", groupName);
       sumRow.innerHTML = `
-        <td colspan="2" style="text-align: right; font-weight: bold; padding: 6px;">Zwischensumme:</td>
-        <td class="group-bid-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-        <td class="group-ask-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-        <td class="group-spread-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-        <td style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td> <!-- Alter -->
-        <td style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td> <!-- Alter -->
+        <td colspan="9" style="text-align: right; font-weight: bold; padding: 6px;">Zwischensumme:</td>
+
         <td class="group-delta-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
         <td class="group-vega-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
-        <td class="group-qty-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupQuantitySum}</td>
+
         <td class="group-close-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">${groupCloseSum.toFixed(2)}</td>
         <td class="group-pnl-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
         <td class="group-pnlPer-${groupName}" style="text-align: right; border: 1px solid #ccc; padding: 6px;">-</td>
@@ -403,7 +445,48 @@ function loadPositions() {
 
     function updatePositionPrices(item, fullSymbol) {
 
+
       if (item.eventType !== 'Quote') return;
+
+      if (item.isOption === false) {
+        var rowsBids = document.querySelectorAll(`.${item.underlying}_bid`)
+        if(rowsBids) {
+            rowsBids.forEach(r => {
+                r.innerText = parseFloat(item.bidPrice).toFixed(2);
+            });
+        }
+
+        var rowsAsks = document.querySelectorAll(`.${item.underlying}_ask`)
+        if(rowsAsks) {
+            rowsAsks.forEach(r => {
+                r.innerText = parseFloat(item.askPrice).toFixed(2);
+            });
+        }
+
+        var spreadCellUnderlying = document.getElementById(`${item.underlying}_spread`)
+        if(spreadCellUnderlying) {
+            var spread = (item.askPrice - item.bidPrice)
+            spreadCellUnderlying.innerText = spread.toFixed(2) + " (" + (spread / item.askPrice).toFixed(2) + ")";
+            var cost = parseFloat(document.getElementById(`${item.underlying}_entry`).innerText)
+            var underlyingQuantity = parseFloat(document.getElementById(`${item.underlying}_quantity`).innerText)
+            var pnlAbs = (item.bidPrice - cost) * underlyingQuantity
+            document.getElementById(`${item.underlying}_pnl`).innerText = pnlAbs.toFixed(2)
+            document.getElementById(`${item.underlying}_pnlPer`).innerText = ((pnlAbs / cost) * 100).toFixed(2)+"%"
+
+          if (pnlAbs > 0) {
+            document.getElementById(`${item.underlying}_pnl`).style.color = "green";
+            document.getElementById(`${item.underlying}_pnlPer`).style.color = "green";
+          } else if (pnlAbs < 0) {
+            document.getElementById(`${item.underlying}_pnl`).style.color = "red";
+            document.getElementById(`${item.underlying}_pnlPer`).style.color = "red";
+          } else {
+            document.getElementById(`${item.underlying}_pnl`).style.color = "inherit";
+            document.getElementById(`${item.underlying}_pnlPer`).style.color = "inherit";
+          }
+
+        }
+
+      }
 
       const bidCell = document.getElementById(`${fullSymbol}_bid`);
       const askCell = document.getElementById(`${fullSymbol}_ask`);
@@ -415,9 +498,8 @@ function loadPositions() {
 
       if (!entryCell || !quantityCell) return;
 
-
       const quantity = parseInt(quantityCell.innerText);
-      const entryPrice = parseFloat(entryCell.innerText) * 100 * quantity;
+      const entryPrice = parseFloat(entryCell.innerText) ;
 
       // Aktualisiere Bid/Ask
       if (bidCell) bidCell.innerText = item.bidPrice.toFixed(2);
@@ -431,7 +513,7 @@ function loadPositions() {
       }
 
       // PnL & % aktualisieren
-      const pnl = ((item.bidPrice * 100) - entryPrice) * quantity;
+      const pnl = ((item.bidPrice * 100 * quantity) - entryPrice) ;
       const pnlPer = (pnl / entryPrice) * 100;
 
       pnlCell.innerText = pnl.toFixed(2);
@@ -455,7 +537,7 @@ function loadPositions() {
         const group = row.dataset.group;
         // Summe über alle Zeilen in dieser Gruppe bilden
         const rows = document.querySelectorAll(`tr[data-group="${group}"]`);
-        let sumBid = 0, sumAsk = 0, sumPnl = 0, sumQty = 0, sumEntry = 0, sumDelta = 0, sumVega = 0;
+        let sumBid = 0, sumAsk = 0, sumPnl = 0, sumEntry = 0, sumDelta = 0, sumVega = 0;
 
         rows.forEach(r => {
           const sym = r.querySelector("[id$='_symbol']")?.id?.replace("_symbol", "");
@@ -464,38 +546,29 @@ function loadPositions() {
           const b = parseFloat(document.getElementById(`${sym}_bid`)?.innerText);
           const a = parseFloat(document.getElementById(`${sym}_ask`)?.innerText);
           const p = parseFloat(document.getElementById(`${sym}_pnl`)?.innerText);
-          const q = parseInt(document.getElementById(`${sym}_quantity`)?.innerText);
           const e = parseFloat(document.getElementById(`${sym}_entry`)?.innerText);
 
 
           if (!isNaN(b)) sumBid += b;
           if (!isNaN(a)) sumAsk += a;
           if (!isNaN(p)) sumPnl += p;
-          if (!isNaN(q)) sumQty += q;
           if (!isNaN(e)) sumEntry += e;
         });
 
         const groupRow = document.querySelector(`.group-summary[data-group="${group}"]`);
         if (groupRow) {
-          groupRow.querySelector(`.group-bid-${group}`).innerText = sumBid.toFixed(2);
-          groupRow.querySelector(`.group-ask-${group}`).innerText = sumAsk.toFixed(2);
 
-          const spread = sumAsk - sumBid;
-          const spreadRel = sumAsk > 0 ? (spread / sumAsk).toFixed(2) : "0.00";
-          groupRow.querySelector(`.group-spread-${group}`).innerText = `${spread.toFixed(2)} (${spreadRel})`;
 
           groupRow.querySelector(`.group-pnl-${group}`).innerText = sumPnl.toFixed(2);
-          groupRow.querySelector(`.group-qty-${group}`).innerText = sumQty.toFixed(0);
           groupRow.querySelector(`.group-close-${group}`).innerText = sumEntry.toFixed(2);
 
-          const pnlPerGroup = sumEntry > 0 ? ((sumPnl / (sumEntry*100)) * 100).toFixed(2) : "0.00";
+          const pnlPerGroup = sumEntry > 0 ? ((sumPnl / (sumEntry)) * 100).toFixed(2) : "0.00";
           const pnlPerCell = groupRow.querySelector(`.group-pnlPer-${group}`);
           pnlPerCell.innerText = pnlPerGroup + "%";
 
           // Farbe
           if (sumPnl > 0) {
             groupRow.querySelector(`.group-pnl-${group}`).style.color = "green";
-            pnlPerCell.style.color = "green";
           } else if (sumPnl < 0) {
             groupRow.querySelector(`.group-pnl-${group}`).style.color = "red";
             pnlPerCell.style.color = "red";
@@ -541,10 +614,12 @@ function loadPositions() {
     			optionChains[item.underlying].expectedInitialMessages--
             } else {
                 if(item.eventType === 'Candle') {
-
     				if(isNaN(item.close) == false && item.close !== undefined) {
     					optionChains[item.underlying].price = item.close
     				}
+                }
+
+                if(item.eventType === 'Quote') {
 
                 }
             }
@@ -1079,6 +1154,50 @@ function loadPositions() {
       return null;
     }
 
+function rebalanceDelta(){
+
+      const checkboxes = document.querySelectorAll(".position-checkbox:checked");
+
+      if (checkboxes.length !== 1) {
+        alert("Bitte genau eine Position auswählen.");
+        return;
+      }
+
+      const symbol = Array.from(checkboxes).map(cb => cb.dataset.symbol)[0]
+      const symbolGroups = getSymbolGroups()
+      const groupName = symbolGroups[symbol]
+      const delta = Math.round(document.querySelector(`.group-delta-${groupName}`).innerText)
+      const quantity = Math.abs(delta)
+      if(quantity > 0) {
+          const accountId = document.getElementById("accountSelect").value;
+          const underlying = document.getElementById(symbol + "_underlying").innerText
+          var action = "Buy to Open"
+          var limitPrice = parseFloat(document.getElementById(underlying + "_ask").innerText)
+          if(delta > 0) {
+              var action = "Sell to Open"
+              limitPrice = parseFloat(document.getElementById(underlying + "_bid").innerText)
+          }
+
+        	var orderPayload = {
+    		  "order-type": "Limit",
+    		  "time-in-force": "Day",
+    		  "price": limitPrice.toString(),
+    		  "price-effect": "Credit",
+    		  "legs": [
+    			{
+    			  "instrument-type": "Equity",
+    			  "symbol": underlying,
+    			  "quantity": quantity.toString(),
+    			  "action": action
+    			}
+    		  ]
+    		}
+
+    		console.log(orderPayload)
+    		loadPositions();
+      }
+}
+
     function closePositions() {
 
       const checkboxes = document.querySelectorAll(".position-checkbox:checked");
@@ -1195,6 +1314,7 @@ function loadPositions() {
 	document.getElementById("recommandationButton").addEventListener("click", loadRecommendations)
     document.getElementById("accountSelect").addEventListener("change", loadPositions);
     document.getElementById("closeAllPositionsButton").addEventListener("click", closePositions);
+    document.getElementById("rebalanceDeltaButton").addEventListener("click", rebalanceDelta);
     document.getElementById("assignGroupButton").addEventListener("click", assignGroupToSelectedPositions);
     document.getElementById("loginButton").focus();
 
