@@ -3,8 +3,8 @@
 <head>
 	<meta charset="UTF-8">
 	<title>Tastyworks Login</title>
-	<link rel="stylesheet" href="style.css?0">
-	<script src="script.js?1" type="text/javascript"></script>
+	<link rel="stylesheet" href="style.css?2">
+	<script src="script.js?2" type="text/javascript"></script>
 </head>
 <body>
 	<div id="welcomeMessage" style="display: none;"></div>
@@ -27,8 +27,18 @@
 			<div id="optionInputFields">
 				<h3>Optionen eingeben:</h3>
 
-				<label>Account auswählen:</label>
-				<select id="accountSelect" style="padding: 9px; width: 300px; margin-bottom: 20px;"></select>
+                    <h4>Accounts</h4>
+                    <table id="accountTable" style="margin-bottom: 20px; border-collapse: collapse;">
+                      <thead>
+                        <tr>
+                          <th style="padding: 6px; border: 1px solid #ccc;">Account</th>
+                          <th style="padding: 6px; border: 1px solid #ccc;">Anzeigen</th>
+                          <th style="padding: 6px; border: 1px solid #ccc;">Handel</th>
+                        </tr>
+                      </thead>
+                      <tbody id="accountTableBody"></tbody>
+                    </table>
+
 
 				<div>
 					<label>Symbol 1:</label>
@@ -156,6 +166,25 @@
 	var streamSymbolToSymbolMap = new Map();
 	var recommendationInitialLoaded = false
 
+    function loadAccountSettings() {
+      const raw = localStorage.getItem("tw_accountSettings");
+      return raw ? JSON.parse(raw) : {};
+    }
+
+    function saveAccountSettings() {
+      const data = {};
+
+      document.querySelectorAll(".account-settings-row").forEach(row => {
+        const account = row.dataset.account;
+        const display = row.querySelector(".account-display").checked;
+        const trading = row.querySelector(".account-trading").checked;
+
+        data[account] = { display, trading };
+      });
+
+      localStorage.setItem("tw_accountSettings", JSON.stringify(data));
+    }
+
     function getAllGroups() {
       const groups = getSymbolGroups();
       const all = new Set();
@@ -187,33 +216,65 @@
 	  welcomeBox.innerText = `Willkommen, ${username}!`;
 	  welcomeBox.style.display = "block";
 
-	  tta.getAccounts().then(result => {
-		  const select = document.getElementById("accountSelect");
-		  select.innerHTML = "";
-		  result.items.forEach(item => {
-			const opt = document.createElement("option");
-			opt.value = item.account["account-number"];
-			opt.text = item.account.nickname + " (" + item.account["account-number"] + ")";
-			select.appendChild(opt);
-		  });
-		  //
-		});
+        const tableBody = document.getElementById("accountTableBody");
+        tableBody.innerHTML = "";
+
+        tta.getAccounts().then(result => {
+
+                result.items.forEach((item, index) => {
+                  const accountNumber = item.account["account-number"];
+                  const nickname = item.account.nickname;
+
+                  const row = document.createElement("tr");
+                  row.innerHTML = `
+                    <td style="padding: 6px;">${nickname} (${accountNumber})</td>
+                    <td style="padding: 6px; text-align: center;">
+                      <input type="checkbox" class="account-display" data-account="${accountNumber}" checked>
+                    </td>
+                    <td style="padding: 6px; text-align: center;">
+                      <input type="radio" name="account-trade" class="account-trade" data-account="${accountNumber}" ${index === 0 ? 'checked' : ''}>
+                    </td>
+                  `;
+                  tableBody.appendChild(row);
+
+                });
+
+                document.querySelectorAll(".account-display").forEach(cb => {
+                  cb.addEventListener("change", () => {
+                    loadPositions();
+                  });
+                });
+
+        });
 
 	    loadInputState();
 
 	}
 
+
 function loadPositions() {
-  const accountId = document.getElementById("accountSelect").value;
-  if (!accountId) return;
+  const selectedAccounts = Array.from(document.querySelectorAll(".account-display:checked"))
+    .map(cb => cb.dataset.account);
 
-  const tableBody = document.getElementById("positionsTableBody");
-  tableBody.innerHTML = `<tr><td colspan="13" style="padding: 8px; text-align: center;">Lade Daten…</td></tr>`;
+  if (selectedAccounts.length === 0) return;
+  let allPositions = [];
 
-  const groups = getSymbolGroups();
+  Promise.all(selectedAccounts.map(acc => tta.getPositions(acc))).then(results => {
+    results.forEach((res, i) => {
+      const account = selectedAccounts[i];
+      if (res && res.length > 0) {
+        allPositions = allPositions.concat(res.map(p => ({ ...p, account })));
+      }
+    });
+    renderPositions(allPositions);
+  });
+}
 
-  tta.getPositions(accountId).then(result => {
-    console.log(result)
+
+function renderPositions(result) {
+    const tableBody = document.getElementById("positionsTableBody");
+    tableBody.innerHTML = `<tr><td colspan="13" style="padding: 8px; text-align: center;">Lade Daten…</td></tr>`;
+
     if (!result || result.length === 0) {
       tableBody.innerHTML = `<tr><td colspan="13" style="padding: 8px; text-align: center;">Keine Positionen gefunden.</td></tr>`;
       document.getElementById("closeAllPositionsButton").style.display = "none";
@@ -225,13 +286,13 @@ function loadPositions() {
 
     const grouped = {};
 
-
+/*
 result.push({
     "account-number": "5WY78379",
     "instrument-type": "Equity",
     "symbol": "VXX",
     "underlying-symbol": "VXX",
-    "quantity": 0,
+    "quantity": -1,
     "average-daily-market-close-price": "5.58",
     "average-open-price": "54.88",
     "average-yearly-market-close-price": "4.88",
@@ -251,10 +312,10 @@ result.push({
     "created-at": "2025-03-31T14:15:23.152+00:00",
     "updated-at": "2025-03-31T14:15:24.808+00:00"
 });
+*/
 
 
-
-
+    const groups = getSymbolGroups();
     result.forEach(pos => {
       const group = groups[pos.symbol] || "Ohne Gruppe";
       if (!grouped[group]) grouped[group] = [];
@@ -273,8 +334,23 @@ result.push({
       let groupQuantitySum = 0;
 
       positions.forEach(pos => {
+
+        const streamerSymbol = tta.fullSymbolToStreamerSymbol(pos.symbol);
+        if (streamerSymbol) {
+          streamSymbolToSymbolMap.delete(streamerSymbol);
+          unsubscribeOption(streamerSymbol);
+          unsubscribeUnderlying(pos["underlying-symbol"])
+        } else {
+          unsubscribeUnderlying(pos.symbol);
+        }
+
         const row = document.createElement("tr");
         row.setAttribute("data-group", groupName);
+
+        var expiresAt = ""
+        if(pos["expires-at"] !== undefined) {
+            expiresAt = Math.floor((new Date(pos["expires-at"]) - new Date()) / (1000 * 60 * 60 * 24)).toFixed(0)
+        }
 
         row.innerHTML = `
           <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">
@@ -285,9 +361,9 @@ result.push({
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" class="${pos.symbol}_ask" id="${pos.symbol}_ask">-</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_spread">-</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;">${Math.ceil((new Date() - new Date(pos["created-at"])) / (1000 * 60 * 60 * 24))}</td>
-          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;">${Math.floor((new Date(pos["expires-at"]) - new Date()) / (1000 * 60 * 60 * 24))}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;">${expiresAt}</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_quantity">${pos.quantity}</td>
-          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_avgopen">${pos["average-open-price"]}</td>
+          <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_avgopen">${parseFloat(pos["average-open-price"]).toFixed(2)}</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_delta">${pos.quantity}</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_vega">0</td>
           <td style="border: 1px solid #ccc; padding: 6px; text-align: right;" id="${pos.symbol}_entry">${parseFloat(pos["average-open-price"] * pos["multiplier"] * pos.quantity).toFixed(2)}</td>
@@ -298,11 +374,12 @@ result.push({
           <td style="display: none;" id="${pos.symbol}_underlying">${pos["underlying-symbol"]}</td>
           <td style="display: none;" class="${pos["underlying-symbol"]}_bid">1</td>
           <td style="display: none;" class="${pos["underlying-symbol"]}_ask">2</td>
+          <td style="display: none;" id="${pos.symbol}_accountnumber">${pos["account-number"]}</td>
         `;
 
         tableBody.appendChild(row);
 
-        const streamerSymbol = tta.fullSymbolToStreamerSymbol(pos.symbol);
+        //const streamerSymbol = tta.fullSymbolToStreamerSymbol(pos.symbol);
         if (streamerSymbol) {
           streamSymbolToSymbolMap.set(streamerSymbol, pos.symbol);
           subscribeOption(streamerSymbol);
@@ -331,12 +408,7 @@ result.push({
       tableBody.appendChild(sumRow);
     });
 
-  }).catch(err => {
-    console.error("Fehler beim Laden der Positionen:", err);
-    tableBody.innerHTML = `<tr><td colspan="12" style="padding: 8px; text-align: center;">Fehler beim Laden.</td></tr>`;
-  });
 }
-
 
 
     function onWebsocketAuthorized(){
@@ -398,6 +470,14 @@ result.push({
 		document.getElementById("recommandationButton").style.display = "inline-block";
 
 	}
+
+    function unsubscribeOption(streamerSymbol) {
+        tta.unsubscribeSymbol( [ {type: "Quote", symbol: streamerSymbol}, {type: "Greeks", symbol: streamerSymbol} ] )
+    }
+
+    function unsubscribeUnderlying(underlying) {
+        tta.unsubscribeSymbol( [ {type: "Quote", symbol: underlying}, { "symbol": underlying + "{=1d}", "type": "Candle", "fromTime": new Date().getTime() - (86400000 * 3)} ] )
+    }
 
     function subscribeOption(streamerSymbol) {
         tta.subscribeSymbol( [ {type: "Quote", symbol: streamerSymbol}, {type: "Greeks", symbol: streamerSymbol} ] )
@@ -469,9 +549,17 @@ result.push({
             spreadCellUnderlying.innerText = spread.toFixed(2) + " (" + (spread / item.askPrice).toFixed(2) + ")";
             var cost = parseFloat(document.getElementById(`${item.underlying}_entry`).innerText)
             var underlyingQuantity = parseFloat(document.getElementById(`${item.underlying}_quantity`).innerText)
-            var pnlAbs = (item.bidPrice - cost) * underlyingQuantity
-            document.getElementById(`${item.underlying}_pnl`).innerText = pnlAbs.toFixed(2)
-            document.getElementById(`${item.underlying}_pnlPer`).innerText = ((pnlAbs / cost) * 100).toFixed(2)+"%"
+            var pnlAbs = 0
+            if(underlyingQuantity > 0)
+                pnlAbs = (item.bidPrice * underlyingQuantity) - cost
+                document.getElementById(`${item.underlying}_pnl`).innerText = pnlAbs.toFixed(2)
+                document.getElementById(`${item.underlying}_pnlPer`).innerText = ((pnlAbs / cost) * 100).toFixed(2)+"%"
+
+            if(underlyingQuantity < 0)
+                pnlAbs = (item.askPrice * underlyingQuantity) - cost
+                document.getElementById(`${item.underlying}_pnl`).innerText = pnlAbs.toFixed(2)
+                document.getElementById(`${item.underlying}_pnlPer`).innerText = ((pnlAbs / (cost*-1)) * 100).toFixed(2)+"%"
+
 
           if (pnlAbs > 0) {
             document.getElementById(`${item.underlying}_pnl`).style.color = "green";
@@ -569,6 +657,7 @@ result.push({
           // Farbe
           if (sumPnl > 0) {
             groupRow.querySelector(`.group-pnl-${group}`).style.color = "green";
+            pnlPerCell.style.color = "green";
           } else if (sumPnl < 0) {
             groupRow.querySelector(`.group-pnl-${group}`).style.color = "red";
             pnlPerCell.style.color = "red";
@@ -619,9 +708,6 @@ result.push({
     				}
                 }
 
-                if(item.eventType === 'Quote') {
-
-                }
             }
 
             var currentDiff = Math.abs(optionChains[item.underlying].price - item.strike)
@@ -713,7 +799,9 @@ result.push({
     }
 
 	function sendOrder(accountId, orderPayload) {
+	  console.log(accountId);
 	  console.log(orderPayload);
+
 	  tta.sendOrder(accountId, orderPayload).then(result => {
 	  	console.log(result)
 	  	loadPositions();
@@ -724,9 +812,7 @@ result.push({
 
 
 	function dryRun(recommendation, button) {
-		const accountId = document.getElementById("accountSelect").value;
-
-
+		const accountId = document.querySelector(".account-trade:checked")?.dataset.account;
         const card = button.closest(".recommendation-card");
         const quantityInput = card.querySelector(".quantityFactorInput");
         const quantityFactor = parseInt(quantityInput.value || "1");
@@ -765,6 +851,8 @@ result.push({
 
 	  tta.sendDryRun(accountId, payload1).then(result1 => {
 		tta.sendDryRun(accountId, payload2).then(result2 => {
+		      console.log(accountId)
+		      console.log(result2)
 			  var sumImpact = parseFloat(result1['buying-power-effect'].impact) + parseFloat(result2['buying-power-effect'].impact)
 			  const card = button.closest(".recommendation-card");
 			  const output = card.querySelector("[data-dryrun]");
@@ -851,7 +939,7 @@ result.push({
 
         const spreadARel = (spreadA / rec.trade1.ask).toFixed(2);
         const spreadBRel = (spreadB / rec.trade2.ask).toFixed(2);
-
+        const totalSpread = rec.totalSellPrice - rec.totalBuyPrice
         card.innerHTML = `
           <div style="display: flex; flex-direction: row; gap: 2rem; width: 100%; max-width: 1800px; font-size: 12px; font-family: sans-serif; align-items: flex-start;">
 
@@ -869,6 +957,7 @@ result.push({
                     <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">NetDelta</th>
                     <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">Kaufpreis (Ask)</th>
                     <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">Verkaufspreis (Bid)</th>
+                    <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">Spread</th>
                     <th style="border: 1px solid #ccc; padding: 8px; text-align: center;">Quantityfactor</th>
                   </tr>
                 </thead>
@@ -877,6 +966,7 @@ result.push({
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rec.netDelta.toFixed(4)}</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${rec.totalBuyPrice.toFixed(2)}</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${rec.totalSellPrice.toFixed(2)}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${totalSpread.toFixed(2)} (${(totalSpread / rec.totalBuyPrice).toFixed(2)})</td>
                     <td style="border: 1px solid #ccc; padding: 8px; text-align: center;"><input type="number" value="1" min="1" step="1" class="quantityFactorInput" style="width: 60px; height:20px;" /></td>
                   </tr>
                 </tbody>
@@ -1154,10 +1244,37 @@ result.push({
       return null;
     }
 
+function calculateDeltaAdjustmentTradeQuantity(currentPosition, deltaDeviation) {
+  var q1 = 0
+  var q2 = -deltaDeviation
+
+  if( (currentPosition > 0 && deltaDeviation > 0) || (currentPosition < 0 && deltaDeviation < 0) ) {
+    q1 = -currentPosition
+    q2 = -(deltaDeviation + q1)
+  }
+  return {closeTrade: q1,  openTrade: q2};
+}
+
+function getRebalancePayload(action, limitPrice, quantity, underlying, priceEffect) {
+    return {
+		  "order-type": "Limit",
+		  "time-in-force": "Day",
+		  "price": limitPrice.toString(),
+		  "price-effect": priceEffect,
+		  "legs": [
+			{
+			  "instrument-type": "Equity",
+			  "symbol": underlying,
+			  "quantity": quantity.toString(),
+			  "action": action
+			}
+		  ]
+		}
+}
+
 function rebalanceDelta(){
 
       const checkboxes = document.querySelectorAll(".position-checkbox:checked");
-
       if (checkboxes.length !== 1) {
         alert("Bitte genau eine Position auswählen.");
         return;
@@ -1167,35 +1284,40 @@ function rebalanceDelta(){
       const symbolGroups = getSymbolGroups()
       const groupName = symbolGroups[symbol]
       const delta = Math.round(document.querySelector(`.group-delta-${groupName}`).innerText)
-      const quantity = Math.abs(delta)
-      if(quantity > 0) {
-          const accountId = document.getElementById("accountSelect").value;
-          const underlying = document.getElementById(symbol + "_underlying").innerText
-          var action = "Buy to Open"
-          var limitPrice = parseFloat(document.getElementById(underlying + "_ask").innerText)
-          if(delta > 0) {
-              var action = "Sell to Open"
-              limitPrice = parseFloat(document.getElementById(underlying + "_bid").innerText)
-          }
+      const underlying = document.getElementById(symbol + "_underlying").innerText
+      const accountId = document.getElementById(symbol + "_accountnumber").innerText
 
-        	var orderPayload = {
-    		  "order-type": "Limit",
-    		  "time-in-force": "Day",
-    		  "price": limitPrice.toString(),
-    		  "price-effect": "Credit",
-    		  "legs": [
-    			{
-    			  "instrument-type": "Equity",
-    			  "symbol": underlying,
-    			  "quantity": quantity.toString(),
-    			  "action": action
-    			}
-    		  ]
-    		}
-
-    		console.log(orderPayload)
-    		loadPositions();
+      var positionQuantity = 0
+      const positionQuantityCell = document.getElementById(underlying + "_quantity")
+      if(positionQuantityCell) {
+        positionQuantity = parseInt(positionQuantityCell.innerText)
       }
+
+
+      var quantity = 0
+      var orderPayload = undefined
+      if(delta < 0) {
+          quantity = -delta
+          var limitPrice = parseFloat(document.querySelector("."+underlying + "_ask").innerText)
+          orderPayload = getRebalancePayload("Buy to Open", limitPrice, quantity, underlying, "Debit")
+      } else {
+          quantity = Math.min(delta, positionQuantity)
+          var limitPrice = parseFloat(document.querySelector("."+underlying + "_bid").innerText)
+          orderPayload = getRebalancePayload("Sell to Close", limitPrice, quantity, underlying, "Credit")
+      }
+
+
+		console.log(orderPayload)
+
+        //sendOrder(accountId, orderPayloadOpen)
+
+tta.sendDryRun(accountId, orderPayload).then(result1 => {
+    console.log(result1)
+    loadPositions();
+});
+
+
+
 }
 
     function closePositions() {
@@ -1208,15 +1330,14 @@ function rebalanceDelta(){
       }
 
       const selectedSymbols = Array.from(checkboxes).map(cb => cb.dataset.symbol);
-
-      const accountId = document.getElementById("accountSelect").value;
       var orders = []
       selectedSymbols.forEach(symbol => {
+            const accountId = document.getElementById(symbol + "_accountnumber").innerText
+            // instrumentType
+            const instrumentType = document.getElementById(symbol + "_instrumentType").innerText
+            console.log(accountId)
             var bid = document.getElementById(symbol + "_bid").innerText
             var quantity = parseInt(document.getElementById(symbol + "_quantity").innerText)
-            //console.log(symbol + " " + bid + " " + quantity)
-
-
     		var orderPayload = {
     		  "order-type": "Limit",
     		  "time-in-force": "Day",
@@ -1224,7 +1345,7 @@ function rebalanceDelta(){
     		  "price-effect": "Credit",
     		  "legs": [
     			{
-    			  "instrument-type": "Equity Option",
+    			  "instrument-type": instrumentType,
     			  "symbol": symbol,
     			  "quantity": quantity.toString(),
     			  "action": "Sell to Close"
@@ -1232,23 +1353,12 @@ function rebalanceDelta(){
     		  ]
     		}
 
-    		orders.push(orderPayload)
-
-/*
-            console.log(orderPayload)
-            tta.sendDryRun(accountId, orderPayload).then(result => {
-                console.log(result)
-    	    });
-*/
-//          sendOrder(accountId, orderPayload)
-
+    		orders.push({ accountId: accountId, orderPayload: orderPayload})
         });
-
 
         orders.forEach(order => {
-            sendOrder(accountId, order)
+            sendOrder(order.accountId, order.orderPayload)
         });
-
     }
 
     function assignGroupToSelectedPositions() {
@@ -1312,7 +1422,6 @@ function rebalanceDelta(){
     document.getElementById("loginButton").addEventListener("click", login)
 	document.getElementById("loadButton").addEventListener("click", loadOptionChains)
 	document.getElementById("recommandationButton").addEventListener("click", loadRecommendations)
-    document.getElementById("accountSelect").addEventListener("change", loadPositions);
     document.getElementById("closeAllPositionsButton").addEventListener("click", closePositions);
     document.getElementById("rebalanceDeltaButton").addEventListener("click", rebalanceDelta);
     document.getElementById("assignGroupButton").addEventListener("click", assignGroupToSelectedPositions);
@@ -1347,10 +1456,6 @@ function rebalanceDelta(){
       document.getElementById("groupAssignmentDropdown").style.display = "none";
       loadPositions();
     });
-
-
-
-
 
     tryLogin()
 
